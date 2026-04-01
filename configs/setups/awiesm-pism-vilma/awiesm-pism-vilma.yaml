@@ -1,0 +1,264 @@
+#########################################################################################
+########### AWIESM + PISM + VILMA coupling YAML CONFIGURATION #############################
+#########################################################################################
+# Model 1: AWIESM2 (atmosphere-ocean climate)
+# Model 2: PISM (ice sheet)
+# Model 3: VILMA (solid earth)
+# vilma2awiesm (solid earth → climate) is a placeholder to be implemented later.
+
+general:
+    prepcompute_recipe:
+        - "compile_model"
+        - "_show_simulation_info"
+        - "create_new_files"
+        - "create_empty_folders"
+        - "create_hosing_files"
+        - "prepare_coupler_files"
+        - "assemble"
+        - "log_used_files"
+        - "wait_for_iterative_coupling"
+        - "copy_files_to_thisrun"
+        - "modify_namelists"
+        - "modify_files"
+        - "copy_files_to_work"
+        - "report_missing_files"
+        - "compute_and_log_file_checksums"
+        - "_write_finalized_config"
+        - "database_entry"
+
+    model: awiesm-pism-vilma
+
+    coupled_setup: True
+
+    # CIS (climate–ice–solid earth): same recipe pattern as awiesm-2.2.yaml; iterative
+    # chunks require general.iterative_coupling for choose_general.iterative_coupling in
+    # component YAMLs (pism, echam, fesom, jsbach, …).
+    iterative_coupling: True
+
+    include_models:
+        - echam
+        - fesom
+        - oasis3mct
+        - pism
+        - vilma
+        - scope
+        - debm
+
+    # Same structure as configs/setups/awiesm/awiesm.yaml (optional plugins when IC is on).
+    choose_general.iterative_coupling:
+        True:
+            required_plugins:
+                - "git+https://github.com/esm-tools-plugins/esm_pism"
+
+    version: "2.6"
+    available_versions:
+        - '2.6'
+    choose_version:
+        "2.6":
+            couplings:
+                - fesom-2.6+echam-6.3.05p2-awiesm-2.1+pism-github1.2.1+scope-dev+debm-esm_tools
+    # Passed to echam.scenario / jsbach (PALEO enables jsbach_ismc for iterative chunks).
+    scenario: "PALEO"
+    variant: beta
+    with_wiso: false
+    with_icb: false
+    with_recom: false
+    resolution: ${echam.resolution}_${fesom.resolution}
+    postprocessing: false
+    post_time: "00:05:00"
+    choose_general.resolution:
+        T63_CORE2:
+            compute_time: "02:00:00"
+        T63_REF87K:
+            compute_time: "02:00:00"
+        T63_REF:
+            compute_time: "02:00:00"
+    multi_srun:
+        climate_srun:
+            models:
+                - echam
+                - fesom
+        ice_srun:
+            models:
+                - pism
+        solid_srun:
+            models:
+                - vilma
+        couple_srun:
+            models:
+                - scope
+
+#########################################################################################
+########### Submodel sections ###########################################################
+#########################################################################################
+# Echam, jsbach, fesom, computer: inherited from component defaults.
+# OASIS needs explicit coupling setup here for prepare_coupler_files.
+
+echam:
+    # echam.yaml defaults scenario to PI-CTRL and scenario_type: ${scenario}; unqualified
+    # ${scenario} can resolve before general.scenario is applied. Tie both to general.scenario.
+    scenario: ${general.scenario}
+    scenario_type: ${general.scenario}
+    choose_computer.name:
+        albedo:
+            configure_opts: "'--with-coupler=oasis3-mct --without-regard-for-quality'"
+        "*":
+            configure_opts: '--with-coupler=oasis3-mct'
+
+# jsbach.yaml defaults scenario_type: ${scenario} (ambiguous); align with general.scenario.
+jsbach:
+    scenario: ${general.scenario}
+    scenario_type: ${general.scenario}
+
+oasis3mct:
+    model_dir: ${general.model_dir}/oasis
+    mct_version: 2.8
+
+    process_ordering:
+        - fesom
+        - echam
+
+    include_env_from_component_files: False
+
+    a2o_lag: "${echam.time_step}"
+    o2a_lag: "${fesom.time_step}"
+    a2o_seq: 2
+
+    coupling_time_step: 3600
+    choose_echam.lgfw:
+        True:
+            coupling_input_fields:
+                gfw_atmo:
+                    freq: 86400
+                    field_filepath: "gfw_atmo.nc"
+    coupling_target_fields:
+        o2a_flux:
+            - 'sst_atmo:sit_atmo:sie_atmo <--distwgt-- sst_feom:sit_feom:sie_feom'
+            - 'snt_atmo <--distwgt-- snt_feom'
+
+        a2o_flux:
+            - 'taux_oce:tauy_oce:taux_ico:tauy_ico <--bicubic-- taux_atm:tauy_atm:taux_ica:tauy_ica'
+            - 'prec_oce <--distwgt-- prec_atm'
+            - 'snow_oce <--distwgt-- snow_atm'
+            - 'evap_oce <--distwgt-- evap_atm'
+            - 'subl_oce <--distwgt-- subl_atm'
+            - 'heat_oce <--distwgt-- heat_atm'
+            - 'heat_ico <--distwgt-- heat_ica'
+            - 'heat_swo <--distwgt-- heat_swa'
+            - 'hydr_oce <--distwgt-- hydr_atm'
+
+    choose_general.with_wiso:
+        True:
+            add_coupling_target_fields:
+                add_o2a_flux:
+                    - 'o18w_atm <--distwgt-- o18w_oce'
+                    - 'hdow_atm <--distwgt-- hdow_oce'
+                    - 'o16w_atm <--distwgt-- o16w_oce'
+                    - 'o18i_atm <--distwgt-- o18i_oce'
+                    - 'hdoi_atm <--distwgt-- hdoi_oce'
+                    - 'o16i_atm <--distwgt-- o16i_oce'
+                add_a2o_flux:
+                    - 'w1_oce <--distwgt-- w1_atm'
+                    - 'w2_oce <--distwgt-- w2_atm'
+                    - 'w3_oce <--distwgt-- w3_atm'
+                    - 'i1_oce <--distwgt-- i1_atm'
+                    - 'i2_oce <--distwgt-- i2_atm'
+                    - 'i3_oce <--distwgt-- i3_atm'
+    choose_general.with_icb:
+        True:
+            add_coupling_target_fields:
+                add_a2o_flux:
+                    - 'u10w_oce <--distwgt-- u10_atmo'
+                    - 'v10w_oce <--distwgt-- v10_atmo'
+    choose_general.with_recom:
+        True:
+            add_coupling_target_fields:
+                add_o2a_flux:
+                    - 'o18_atmo <--distwgt-- o18_feom'
+                    - 'hdo_atmo <--distwgt-- hdo_feom'
+                    - 'o16_atmo <--distwgt-- o16_feom'
+                add_a2o_flux:
+                    - 'w1_oce <--distwgt-- w1_atm'
+                    - 'w2_oce <--distwgt-- w2_atm'
+                    - 'w3_oce <--distwgt-- w3_atm'
+                    - 'i1_oce <--distwgt-- i1_atm'
+                    - 'i2_oce <--distwgt-- i2_atm'
+                    - 'i3_oce <--distwgt-- i3_atm'
+
+    coupling_directions:
+        'feom->atmo':
+            lag: ${o2a_lag}
+            seq: 2
+        'atmo->feom':
+            lag: ${a2o_lag}
+            seq: ${a2o_seq}
+
+    coupling_methods:
+        distwgt:
+            time_transformation: instant
+            remapping:
+                distwgt:
+                    search_bin: latitude
+                    nb_of_search_bins: 15
+                    nb_of_neighbours: 6
+        bicubic:
+            time_transformation: instant
+            remapping:
+                bicubic:
+                    search_bin: latitude
+                    nb_of_search_bins: 15
+
+    add_restart_out_files:
+        rmp_a2f_B: rmp_a2f_B
+        rmp_a2f_D: rmp_a2f_D
+        rmp_f2a_D: rmp_f2a_D
+
+    add_restart_out_in_work:
+        rmp_a2f_B: rmp_atmo_to_feom_BICUBIC.nc
+        rmp_a2f_D: rmp_atmo_to_feom_DISTWGT.nc
+        rmp_f2a_D: rmp_feom_to_atmo_DISTWGT.nc
+
+    add_restart_out_sources:
+        rmp_a2f_B: rmp_atmo_to_feom_BICUBIC.nc
+        rmp_a2f_D: rmp_atmo_to_feom_DISTWGT.nc
+        rmp_f2a_D: rmp_feom_to_atmo_DISTWGT.nc
+
+    add_restart_in_files:
+        rmp_a2f_B: rmp_a2f_B
+        rmp_a2f_D: rmp_a2f_D
+        rmp_f2a_D: rmp_f2a_D
+
+    add_restart_in_in_work:
+        rmp_a2f_B: rmp_atmo_to_feom_BICUBIC.nc
+        rmp_a2f_D: rmp_atmo_to_feom_DISTWGT.nc
+        rmp_f2a_D: rmp_feom_to_atmo_DISTWGT.nc
+
+    add_restart_in_sources:
+        rmp_a2f_B: rmp_atmo_to_feom_BICUBIC.nc
+        rmp_a2f_D: rmp_atmo_to_feom_DISTWGT.nc
+        rmp_f2a_D: rmp_feom_to_atmo_DISTWGT.nc
+
+computer:
+    add_export_vars:
+        # Keep the ECHAM compile environment aligned with the standalone AWIESM setup
+        # so that the OASIS-coupled binary is configured correctly.
+        OIFS_OASIS_BASE:
+            _value: '$(pwd)/oasis'
+            _execution_mode: compile
+            _component: echam
+        OIFS_OASIS_INCLUDE:
+            _value: '"-I$OIFS_OASIS_BASE/build/lib/psmile -I$OIFS_OASIS_BASE/build/lib/psmile/scrip -I$OIFS_OASIS_BASE/build/lib/psmile/mct -I$OIFS_OASIS_BASE/build/lib/psmile/mct/mpeu"'
+            _execution_mode: compile
+            _component: echam
+        OASIS3MCT_FC_LIB:
+            _value: "$(pwd)/lib/"
+            _execution_mode: compile
+            _component: echam
+        OASIS3MCTROOT:
+            _value: "$(pwd)/oasis/"
+            _execution_mode: compile
+            _component: echam
+        configure_opts:
+            _value: "${echam.configure_opts}"
+            _execution_mode: compile
+            _component: echam

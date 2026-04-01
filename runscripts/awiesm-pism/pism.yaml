@@ -1,0 +1,73 @@
+general:
+    setup_name: pism
+    compute_time: "00:15:00"
+    initial_date: "2001-01-01"
+    final_date: "2010-12-31"
+    base_dir: "/work/ba0989/a270146/awiesm-pism/"
+    script_dir: "${general.esm_couplings_dir}"
+    nyear: 5
+    files_to_wait_for:
+        - "latest_atmo_forcing_file.nc"
+        - "latest_ocean_forcing_file.nc"
+    use_venv: False
+
+pism:
+    version: "github1.2.1"
+    resolution: "16km"
+    domain: "nhem"
+    model_dir: "/path/to/pism-github1.2.1/"
+    pool_dir: "/path/to/pool_pism/"
+    spinup_file: "/path/to/pismr_nhem_16km_spinup.nc"
+    ts_interval: "1"
+    ex_interval: "monthly"
+    force_bootstrap_first_run: True
+
+    ablation_method: "PDD"
+
+    coupled_to_solidearth: 0
+
+    kv_pairs:
+        stress_balance.model: "ssa+sia"
+        stress_balance.sia.max_diffusivity: 800
+        bed_deformation.model: "lc"
+        calving.methods: 'eigen_calving,thickness_calving'
+        calving.thickness_calving.threshold: 200
+        ocean.pik_melt_factor: "1e-2"
+
+    flags:
+        - "pik"
+        - "basal_resistance.pseudo_plastic.enabled"
+        - "basal_yield_stress.slippery_grounding_lines"
+
+    couplers:
+        surface:
+            given:
+                files:
+                    surface_given_file: "latest_atmo_forcing_file.nc"
+                kv_pairs:
+                    surface_given_period: 1
+        ocean:
+            th:
+                files:
+                    ocean_th_file: "latest_ocean_forcing_file.nc"
+
+    workflow:
+        next_run_triggered_by: couple_out
+        subjobs:
+            couple_in:
+                nproc: 1
+                run_before: prepcompute
+                script: coupling_cis2pism.functions
+                script_dir: ${general.script_dir}/coupling_CIS/pism
+                call_function: cis2pism
+                env_preparation: env_pism.py
+                run_only: first_run_in_chunk
+
+            couple_out:
+                nproc: 1
+                run_after: tidy
+                script: coupling_pism2cis.functions
+                script_dir: ${general.script_dir}/coupling_CIS/pism
+                call_function: pism2cis
+                env_preparation: env_pism.py
+                run_only: last_run_in_chunk

@@ -1,0 +1,113 @@
+general:
+    account: "ba0989"
+    setup_name: "awiesm"
+    version: "2.6.1"
+    compute_time: "00:30:00"
+    initial_date: "2001-01-01"
+    final_date: "2002-12-31"
+    base_dir: "/work/ba0989/a270146/awiesm-pism/"
+    model_dir: "/home/a/a270146/esm_tools/model_codes/awiesm-pism/awiesm-2.6.1/"
+    script_dir: "${general.esm_couplings_dir}"
+    nmonth: 0
+    nyear: 1
+    use_venv: False
+    with_wiso: False
+    with_icb: False
+    # PALEO setup: namelist paths, jsbach choose_echam.scenario, iterative IC.
+    scenario: "PALEO"
+    ini_parent_exp_id: "awiesm_spinup"
+    ini_parent_dir: "${base_dir}/${ini_parent_exp_id}/"
+    files_to_wait_for:
+        - "latest_jsbach_init_file.nc"
+        - "latest_gfw_atmo.nc"
+        - "latest_jsbach_restart_file.nc"
+        - "latest_veg_restart_file.nc"
+        - "latest_target_orography.nc"
+        - "landice_yearly_mass_loss.out"
+
+computer:
+    mail_type: "FAIL"
+
+echam:
+    lresume: 1
+    ini_parent_date: "2000-12-31T23:52:30"
+    ini_parent_exp_id: "${general.ini_parent_exp_id}"
+    ini_parent_dir: "${general.ini_parent_dir}/restart/echam/"
+    restart_rate: 1
+    restart_unit: "years"
+    nproca: 24
+    nprocb: 24
+    nprocar: 0
+    nprocbr: 0
+    workflow:
+        next_run_triggered_by: couple_out
+        subjobs:
+            couple_in:
+                nproc: 1
+                run_before: prepcompute
+                script: coupling_cis2echam.functions
+                script_dir: ${general.script_dir}/coupling_CIS/echam
+                call_function: cis2echam
+                env_preparation: env_echam.py
+                run_only: first_run_in_chunk
+                skip_chunk_number: 1
+
+            couple_out:
+                nproc: 1
+                run_after: tidy
+                script: coupling_echam2cis.functions
+                script_dir: ${general.script_dir}/coupling_CIS/echam
+                call_function: echam2cis
+                env_preparation: env_echam.py
+                run_only: last_run_in_chunk
+
+fesom:
+    lresume: 1
+    ini_parent_date: 20001231
+    ini_parent_exp_id: "${general.ini_parent_exp_id}"
+    ini_parent_dir: "${general.ini_parent_dir}/restart/fesom/"
+    res: "CORE2"
+    nx: 126858
+    mesh_dir: "/path/to/meshes/PI_CTRL/"
+    restart_rate: 1
+    restart_unit: "y"
+    restart_first: 1
+    workflow:
+        next_run_triggered_by: couple_out
+        subjobs:
+            couple_in:
+                nproc: 1
+                run_before: prepcompute
+                script: coupling_cis2fesom.functions
+                script_dir: ${general.script_dir}/coupling_CIS/fesom
+                call_function: cis2fesom
+                env_preparation: env_fesom.py
+                run_only: first_run_in_chunk
+                skip_chunk_number: 1
+
+            couple_out:
+                nproc: 1
+                run_after: tidy
+                script: coupling_fesom2cis.functions
+                script_dir: ${general.script_dir}/coupling_CIS/fesom
+                call_function: fesom2cis
+                env_preparation: env_fesom.py
+                run_only: last_run_in_chunk
+
+hdmodel:
+    lresume: 1
+    ini_parent_date: "20001231"
+    ini_parent_exp_id: "${general.ini_parent_exp_id}"
+    ini_parent_dir: "${general.ini_parent_dir}/restart/hdmodel/"
+
+jsbach:
+    lresume: 1
+    ini_parent_date: "20001231"
+    ini_parent_exp_id: "${general.ini_parent_exp_id}"
+    ini_parent_dir: "${general.ini_parent_dir}/restart/jsbach/"
+
+oasis3mct:
+    lresume: 1
+    ini_parent_date: "20001231"
+    ini_parent_exp_id: "${general.ini_parent_exp_id}"
+    ini_parent_dir: "${general.ini_parent_dir}/restart/oasis3mct/"

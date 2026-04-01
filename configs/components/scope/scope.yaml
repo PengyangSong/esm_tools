@@ -8,13 +8,12 @@ scope:
         Authors: Paul Gierz (pgierz@awi.de)
 
     available_versions:
-    - dev
+        - dev
     choose_version:
-      dev:
-        git-repository: https://gitlab.awi.de/paleodyn/Models/scope.git
+        dev:
+            git-repository: https://gitlab.awi.de/paleodyn/Models/scope.git
     clean_command: pip uninstall scope-coupler
-    comp_command: 'mkdir bin; pip install --user -e .; cp $(python -m site --user-base)/bin/scope ./bin
-      '
+    comp_command: 'mkdir -p bin; pip install --user -e .; cp $(python -m site --user-base)/bin/scope ./bin'
     contact: "paul.gierz(at)awi.de"
     install_bins:
         - bin/scope

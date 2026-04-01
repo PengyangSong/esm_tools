@@ -1,0 +1,38 @@
+general:
+    base_dir: "/work/ba0989/a270146/awiesm-pism-vilma/"
+    script_dir: "${general.esm_couplings_dir}"
+    initial_date: "2001-01-01"
+    final_date: "2010-12-31"
+    setup_name: vilma
+    compute_time: 00:06:00
+    nyear: 5
+    use_venv: False
+
+vilma:
+    model_dir: /path/to/vilma-1d/
+    pool_dir: ${model_dir}
+    lresume: False
+    scenario: small
+    coupled_to_ice: True
+
+    workflow:
+        next_run_triggered_by: couple_out
+
+        subjobs:
+            couple_in:
+                nproc: 1
+                run_before: prepcompute
+                script: coupling_cis2vilma.functions
+                script_dir: ${general.script_dir}/coupling_CIS/vilma
+                call_function: cis2vilma
+                env_preparation: env_vilma.py
+                run_only: first_run_in_chunk
+
+            couple_out:
+                nproc: 1
+                run_after: tidy
+                script: coupling_vilma2cis.functions
+                script_dir: ${general.script_dir}/coupling_CIS/vilma
+                call_function: vilma2cis
+                env_preparation: env_vilma.py
+                run_only: last_run_in_chunk

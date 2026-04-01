@@ -1,0 +1,16 @@
+#!/usr/bin/ksh
+##
+## CIS couple_in: solidearth2pism / awiesm2pism from this tree (coupling_CIS/pism).
+##
+cis2pism() {
+    echo "                ========== PISM couple_in (CIS) =========="
+    if [ -z "${FUNCTION_PATH}" ]; then
+        echo "ERROR: FUNCTION_PATH not set."
+        return 1
+    fi
+    . ${FUNCTION_PATH}/coupling_solidearth2pism.functions
+    solidearth2pism
+    . ${FUNCTION_PATH}/coupling_awiesm2pism.functions
+    awiesm2pism
+    echo "                ========== PISM couple_in finished =========="
+}

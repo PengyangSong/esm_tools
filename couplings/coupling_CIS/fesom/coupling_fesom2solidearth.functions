@@ -1,0 +1,27 @@
+#!/usr/bin/ksh
+##
+## @file coupling_fesom2solidearth.functions
+## @brief FESOM (ocean) → solid earth (VILMA).
+##        Placeholder: no physical linkage currently needed.
+##
+
+function fesom2solidearth {
+        echo "                =================================================================="
+        echo "                 *** S T A R T I N G    fesom2solidearth *** "; echo
+
+        echo "                FESOM_TO_SOLID_EARTH=${FESOM_TO_SOLID_EARTH:-0}"
+
+        if [[ "x${FESOM_TO_SOLID_EARTH}" == "x1" ]]; then
+                iterative_coupling_fesom_solidearth_placeholder
+        else
+                echo " NOT passing ocean state to solid earth (no physical linkage)"
+        fi
+        echo
+        echo "                 *** F I N I S H E D    fesom2solidearth *** "
+        echo "                =================================================================="
+}
+
+function iterative_coupling_fesom_solidearth_placeholder {
+        echo " (fesom2solidearth) Placeholder: reserved for future use."
+        return 0
+}

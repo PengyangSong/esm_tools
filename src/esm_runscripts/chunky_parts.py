@@ -39,6 +39,21 @@ def _update_run_in_chunk(config):
     if not config["general"].get("iterative_coupling", False):
         return config
 
+    # Multi-model offline coupling sets these via chunk date files and model1/…
+    # (setup_correct_chunk_config). Single-setup runs (e.g. esm_master) only get
+    # iterative_coupling from merged YAML after init_iterative_coupling, so apply
+    # the same defaults as _initialize_chunk_date_file / _read_date_file.
+    if "run_in_chunk" not in config["general"]:
+        config["general"]["run_in_chunk"] = "first"
+    if "chunk_number" not in config["general"]:
+        config["general"]["chunk_number"] = 1
+
+    # Single-setup IC (e.g. esm_master): no model1/model2, so _set_model_queue never
+    # ran. Downstream expects at least a one-element queue when last in chunk.
+    gen = config["general"]
+    if "model_named_queue" not in gen and gen.get("setup_name") is not None:
+        gen["model_named_queue"] = [gen["setup_name"]]
+
     config = _is_first_run_in_chunk(config)
     config = _is_last_run_in_chunk(config)
     config = _find_next_model_to_run(config)
@@ -49,6 +64,17 @@ def _update_run_in_chunk(config):
 def set_chunk_calendar(config):
     if not config["general"].get("iterative_coupling", False):
         return config
+
+    gen = config["general"]
+    # Multi-model offline IC sets this from model1.chunk_size / chunk date files;
+    # merged setup YAML + esm_master only have iterative_coupling. Align with the
+    # run length (nyear is set before this step in _initialize_calendar).
+    if gen.get("this_chunk_size") is None:
+        gen["this_chunk_size"] = int(gen.get("nyear") or 1)
+    if gen.get("this_chunk_unit") is None:
+        gen["this_chunk_unit"] = "years"
+    if "number_of_ic_models" not in gen:
+        gen["number_of_ic_models"] = 1
 
     delta_date = (
         config["general"]["nyear"],
@@ -218,8 +244,8 @@ def prev_chunk_info(config):
     expid = config["general"]["expid"]
     base_dir = config["general"]["base_dir"]
     chunk_number = config["general"]["chunk_number"]
-    model_named_queue = config["general"]["model_named_queue"]
     setup_name = config["general"]["setup_name"]
+    model_named_queue = config["general"].get("model_named_queue") or [setup_name]
 
     if chunk_number <= 1:
         return
@@ -434,14 +460,17 @@ def _is_last_run_in_chunk(config):
 
 
 def _find_next_model_to_run(config):
-    if config["general"]["last_run_in_chunk"]:
-        config["general"].super_setitem(
-            "next_setup_name", config["general"]["model_named_queue"][0]
-        )
+    gen = config["general"]
+    if gen["last_run_in_chunk"]:
+        queue = gen.get("model_named_queue") or []
+        if queue:
+            next_setup = queue[0]
+        else:
+            # Belt-and-suspenders if setup_name was missing earlier in the pipeline
+            next_setup = gen["setup_name"]
+        gen.super_setitem("next_setup_name", next_setup)
     else:
-        config["general"].super_setitem(
-            "next_setup_name", config["general"]["setup_name"]
-        )
+        gen.super_setitem("next_setup_name", gen["setup_name"])
     return config
 
 

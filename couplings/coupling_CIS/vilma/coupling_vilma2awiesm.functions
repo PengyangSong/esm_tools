@@ -1,0 +1,33 @@
+#!/usr/bin/ksh
+##
+## @file coupling_vilma2awiesm.functions
+## @brief VILMA (solid earth / GIA) output to AWIESM2 climate model:
+##        sea-level / bedrock change for land-sea mask and coastal
+##        geometry updates in ECHAM and FESOM.
+##        Placeholder: actual implementation to be added by user.
+##
+
+function vilma2awiesm {
+        echo "                =================================================================="
+        echo "                 *** S T A R T I N G    vilma2awiesm *** "; echo
+
+        echo "                VILMA_TO_AWIESM=${VILMA_TO_AWIESM:-0}"
+
+        if [[ "x${VILMA_TO_AWIESM}" == "x1" ]]; then
+                iterative_coupling_vilma_awiesm_placeholder
+        else
+                echo " NOT passing VILMA sea-level / bedrock change to AWIESM"
+        fi
+        echo
+        echo "                 *** F I N I S H E D    vilma2awiesm *** "
+        echo "                =================================================================="
+}
+
+function iterative_coupling_vilma_awiesm_placeholder {
+        echo " (vilma2awiesm) Placeholder: land-sea mask / bathymetry update for ECHAM and FESOM to be implemented."
+        # Expected workflow:
+        #   1. Read VILMA rsl.nc (relative sea level) from ${OUTDATA_DIR_vilma}
+        #   2. Derive land-sea mask change and bathymetry change
+        #   3. Write files to ${COUPLE_DIR} for solidearth2echam and solidearth2fesom
+        return 0
+}

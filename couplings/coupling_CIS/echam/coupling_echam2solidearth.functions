@@ -1,0 +1,27 @@
+#!/usr/bin/ksh
+##
+## @file coupling_echam2solidearth.functions
+## @brief ECHAM (atmosphere) → solid earth (VILMA).
+##        Placeholder: no physical linkage currently needed.
+##
+
+function echam2solidearth {
+        echo "                =================================================================="
+        echo "                 *** S T A R T I N G    echam2solidearth *** "; echo
+
+        echo "                ECHAM_TO_SOLID_EARTH=${ECHAM_TO_SOLID_EARTH:-0}"
+
+        if [[ "x${ECHAM_TO_SOLID_EARTH}" == "x1" ]]; then
+                iterative_coupling_echam_solidearth_placeholder
+        else
+                echo " NOT passing atmosphere state to solid earth (no physical linkage)"
+        fi
+        echo
+        echo "                 *** F I N I S H E D    echam2solidearth *** "
+        echo "                =================================================================="
+}
+
+function iterative_coupling_echam_solidearth_placeholder {
+        echo " (echam2solidearth) Placeholder: reserved for future use."
+        return 0
+}

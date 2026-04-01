@@ -1,0 +1,33 @@
+#!/usr/bin/ksh
+##
+## @file coupling_solidearth2fesom.functions
+## @brief Solid earth (VILMA) → FESOM: apply bathymetry / land-sea mask
+##        changes from GIA to the ocean model.
+##        Placeholder: actual implementation to be added by user.
+##
+
+function solidearth2fesom {
+        echo "                =================================================================="
+        echo "                 *** S T A R T I N G    solidearth2fesom *** "; echo
+
+        echo "                SOLID_EARTH_TO_FESOM=${SOLID_EARTH_TO_FESOM:-0}"
+
+        if [[ "x${SOLID_EARTH_TO_FESOM}" == "x1" ]]; then
+                iterative_coupling_solidearth_fesom_placeholder
+        else
+                echo " NOT applying solid earth changes to FESOM"
+        fi
+        echo
+        echo "                 *** F I N I S H E D    solidearth2fesom *** "
+        echo "                =================================================================="
+}
+
+function iterative_coupling_solidearth_fesom_placeholder {
+        echo " (solidearth2fesom) Placeholder: bathymetry / land-sea mask update for FESOM to be implemented."
+        # Expected workflow:
+        #   1. Read sea-level / bathymetry change from ${COUPLE_DIR}
+        #      (produced by vilma2awiesm or vilma2ice)
+        #   2. Regrid to FESOM unstructured mesh
+        #   3. Update FESOM mesh files or restart with new bathymetry
+        return 0
+}
