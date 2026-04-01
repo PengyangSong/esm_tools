@@ -1,0 +1,16 @@
+#!/usr/bin/ksh
+##
+## CIS couple_in: ice2fesom and solidearth2fesom from this tree (coupling_CIS/fesom).
+##
+cis2fesom() {
+    echo "                ========== FESOM couple_in (CIS) =========="
+    if [ -z "${FUNCTION_PATH}" ]; then
+        echo "ERROR: FUNCTION_PATH not set."
+        return 1
+    fi
+    . ${FUNCTION_PATH}/coupling_ice2fesom.functions
+    ice2fesom
+    . ${FUNCTION_PATH}/coupling_solidearth2fesom.functions
+    solidearth2fesom
+    echo "                ========== FESOM couple_in finished =========="
+}

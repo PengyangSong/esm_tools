@@ -1,0 +1,16 @@
+#!/usr/bin/ksh
+##
+## CIS couple_out: vilma2ice and vilma2awiesm from this tree (coupling_CIS/vilma).
+##
+vilma2cis() {
+    echo "                ========== VILMA couple_out (CIS) =========="
+    if [ -z "${FUNCTION_PATH}" ]; then
+        echo "ERROR: FUNCTION_PATH not set."
+        return 1
+    fi
+    . ${FUNCTION_PATH}/coupling_vilma2ice.functions
+    vilma2ice
+    . ${FUNCTION_PATH}/coupling_vilma2awiesm.functions
+    vilma2awiesm
+    echo "                ========== VILMA couple_out finished =========="
+}

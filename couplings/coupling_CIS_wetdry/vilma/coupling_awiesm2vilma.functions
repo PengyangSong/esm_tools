@@ -1,0 +1,27 @@
+#!/usr/bin/ksh
+##
+## @file coupling_awiesm2vilma.functions
+## @brief AWIESM (climate) → VILMA (solid earth).
+##        Placeholder: no physical linkage currently needed.
+##
+
+function awiesm2vilma {
+        echo "                =================================================================="
+        echo "                 *** S T A R T I N G    awiesm2vilma *** "; echo
+
+        echo "                AWIESM_TO_VILMA=${AWIESM_TO_VILMA:-0}"
+
+        if [[ "x${AWIESM_TO_VILMA}" == "x1" ]]; then
+                iterative_coupling_awiesm_vilma_placeholder
+        else
+                echo " NOT passing climate state to solid earth (no physical linkage)"
+        fi
+        echo
+        echo "                 *** F I N I S H E D    awiesm2vilma *** "
+        echo "                =================================================================="
+}
+
+function iterative_coupling_awiesm_vilma_placeholder {
+        echo " (awiesm2vilma) Placeholder: reserved for future use."
+        return 0
+}

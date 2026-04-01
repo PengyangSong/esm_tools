@@ -1,0 +1,34 @@
+#!/usr/bin/ksh
+##
+## @file coupling_solidearth2echam.functions
+## @brief Solid earth (VILMA) → ECHAM: apply land-sea mask changes
+##        from GIA to the atmosphere model.
+##        Placeholder: actual implementation to be added by user.
+##
+
+function solidearth2echam {
+        echo "                =================================================================="
+        echo "                 *** S T A R T I N G    solidearth2echam *** "; echo
+
+        echo "                SOLID_EARTH_TO_ECHAM=${SOLID_EARTH_TO_ECHAM:-0}"
+
+        if [[ "x${SOLID_EARTH_TO_ECHAM}" == "x1" ]]; then
+                iterative_coupling_solidearth_echam_placeholder
+        else
+                echo " NOT applying solid earth changes to ECHAM"
+        fi
+        echo
+        echo "                 *** F I N I S H E D    solidearth2echam *** "
+        echo "                =================================================================="
+}
+
+function iterative_coupling_solidearth_echam_placeholder {
+        echo " (solidearth2echam) Placeholder: land-sea mask (SLM) update for ECHAM to be implemented."
+        # Expected workflow:
+        #   1. Read sea-level / land-sea mask change from ${COUPLE_DIR}
+        #      (produced by vilma2awiesm or vilma2ice)
+        #   2. Regrid to ECHAM Gaussian grid
+        #   3. Update SLM in ECHAM restart and unit.24 (jan_surf)
+        #   4. Propagate to JSBACH init file if needed
+        return 0
+}

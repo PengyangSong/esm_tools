@@ -1,0 +1,16 @@
+#!/usr/bin/ksh
+##
+## CIS couple_out: echam2ice and echam2solidearth from this tree (coupling_CIS/echam).
+##
+echam2cis() {
+        echo "                ========== ECHAM couple_out (CIS) =========="
+        if [ -z "${FUNCTION_PATH}" ]; then
+                echo "ERROR: FUNCTION_PATH not set."
+                return 1
+        fi
+        . ${FUNCTION_PATH}/coupling_echam2ice.functions
+        echam2ice
+        . ${FUNCTION_PATH}/coupling_echam2solidearth.functions
+        echam2solidearth
+        echo "                ========== ECHAM couple_out finished =========="
+}

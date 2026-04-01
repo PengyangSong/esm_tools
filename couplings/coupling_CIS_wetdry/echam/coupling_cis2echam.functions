@@ -1,0 +1,19 @@
+#!/usr/bin/ksh
+##
+## CIS couple_in wrapper for ECHAM.
+## CIS = Climate-Icesheet-Solidearth
+## 1) ice2echam        - orography, glacial mask, land runoff from PISM
+## 2) solidearth2echam - land-sea mask change from VILMA (placeholder)
+##
+cis2echam() {
+        echo "                ========== ECHAM couple_in (CIS) =========="
+        if [ -z "${FUNCTION_PATH}" ]; then
+                echo "ERROR: FUNCTION_PATH not set."
+                return 1
+        fi
+        . ${FUNCTION_PATH}/coupling_ice2echam.functions
+        ice2echam
+        . ${FUNCTION_PATH}/coupling_solidearth2echam.functions
+        solidearth2echam
+        echo "                ========== ECHAM couple_in finished =========="
+}
