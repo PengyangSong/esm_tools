@@ -1,0 +1,11 @@
+### ProjectName
+global_mesh
+### ProjectPath
+./
+### BathymetryName
+global
+### BathymetryPath
+./
+### BathymetryDataSet
+template.nc
+

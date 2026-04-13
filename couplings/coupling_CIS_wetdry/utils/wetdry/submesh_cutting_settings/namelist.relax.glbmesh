@@ -1,0 +1,18 @@
+&parameters
+verbosity=5,
+enable_edge_swapping=.TRUE.,
+nmb_iter_ttl=10,
+nmb_iter_torsion=3,
+nmb_iter_linear=100,
+nmb_iter_laplace=3,
+T_relax_goal=7,
+enable_restore_cst=.FALSE.,
+enable_bnd_smoothing=.FALSE.,
+interpolate_topography=.FALSE.,
+stereographic=.TRUE.,
+cut_off_triangles=.FALSE.,
+topo_threshold=0.,
+cst_dist_threshold=10000.,
+bathymetry_type=1,
+nmb_iter_smooth_topo=0,
+nmb_prio_reg=0 /

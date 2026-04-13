@@ -388,7 +388,7 @@ function iterative_coupling_pism_ocean_prepare_ocean_update_mask_forcing {
 	${PISM_RESTART_OUTPUT_FILE} ice_file_at_ocean.laststep.pismmask.nc
 
     $cdo -setvar,${ocean_name_oceanmask} \
-	eqc,4 ice_file_at_ocean.laststep.pismmask.nc \
+	-eqc,4 ice_file_at_ocean.laststep.pismmask.nc \
 	ice_file_at_ocean.laststep.mask_ocean.nc
     $cdo -setvar,${ocean_name_iceshelfmask} \
 	-eqc,3 ice_file_at_ocean.laststep.pismmask.nc \

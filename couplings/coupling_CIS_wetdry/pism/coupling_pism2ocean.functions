@@ -36,7 +36,7 @@ function pism2ocean {
     CHUNK_DATE_TAG_pism="${CURRENT_YEAR_pism}-${END_YEAR_pism}"
     #CHUNK_DATE_TAG_awicm="${CHUNK_START_DATE_awicm}-${CHUNK_END_DATE_awicm}"
 
-    # Prefer paths from esm_tools env (CIS / iterative coupling); fall back to legacy layout.
+    # Prefer paths from esm_tools env (CIS / iterative coupling); otherwise use default output layout.
     if [[ -n "${last_year_in_chunk_restart:-}" ]] && [[ -f "${last_year_in_chunk_restart}" ]]; then
         PISM_RESTART_OUTPUT_FILE=${last_year_in_chunk_restart}
     else
@@ -205,6 +205,10 @@ function iterative_coupling_pism_ocean_write_names {
     echo ""; echo " *   ice shelf base geometry (usurf-thk on floating cells, PISM mask==3)"
     echo "ocean_name_shelf_base_geometry=shelf_base" >> ice_names_for_ocean.dat
     echo "ocean_units_shelf_base_geometry=m" >> ice_names_for_ocean.dat
+
+    echo ""; echo " *   ice shelf base level (0=ocean mask4, usurf-thk mask3, else sentinel)"
+    echo "ocean_name_shelf_base_level=shelf_base_level" >> ice_names_for_ocean.dat
+    echo "ocean_units_shelf_base_level=m" >> ice_names_for_ocean.dat
 
     add_to $(pwd)/ice_names_for_ocean.dat ice_names_for_ocean.dat couple
     echo "     ...done."
@@ -411,7 +415,7 @@ function iterative_coupling_pism_ocean_prepare_ocean_update_mask_forcing {
 	${PISM_RESTART_OUTPUT_FILE} ice_file_at_ocean.laststep.pismmask.nc
 
     $cdo -setvar,${ocean_name_oceanmask} \
-	eqc,4 ice_file_at_ocean.laststep.pismmask.nc \
+	-eqc,4 ice_file_at_ocean.laststep.pismmask.nc \
 	ice_file_at_ocean.laststep.mask_ocean.nc
     $cdo -setvar,${ocean_name_iceshelfmask} \
 	-eqc,3 ice_file_at_ocean.laststep.pismmask.nc \
@@ -446,11 +450,13 @@ function iterative_coupling_pism_ocean_prepare_ocean_update_mask_forcing {
 ## @fn iterative_coupling_pism_ocean_prepare_wetdry_geometry
 ## @brief PISM mask==4 (ice-free ocean) or mask==3 (floating / ice shelf): combined wet mask;
 ##        shelf_base = usurf - thk on mask==3 only (ice-shelf base elevation, m).
-##        Writes ice_ocean_wet_mask.nc and ice_shelf_base_geometry.nc in COUPLE_DIR for FESOM wet/dry development.
+##        shelf_base_level = 0 (mask4), usurf-thk (mask3), WETDRY_SHELF_BASE_LEVEL_SENTINEL elsewhere (default -9999).
+##        Also writes ice_wetdry_cut_fields.nc: shelf_base_ut (= usurf-thk on full grid) and grounded_ice_mask (=1 where mask==2).
+##        Writes ice_ocean_wet_mask.nc, ice_shelf_base_geometry.nc, ice_shelf_base_level.nc in COUPLE_DIR.
 function iterative_coupling_pism_ocean_prepare_wetdry_geometry {
     echo " *   Preparing PISM ocean+wet mask and ice-shelf base geometry for ${PISM_RESTART_OUTPUT_FILE}"
 
-    test_file_or_exit ${PISM_RESTART_OUTPUT_FILE} 41
+    test_file_or_exit ${PISM_FORCING_EXTRA_FILE} 41
 
     _wd_src=${COUPLE_DIR}/pism_wetdry_src.nc
     _wd_m3=${COUPLE_DIR}/pism_wetdry_m3.nc
@@ -459,8 +465,10 @@ function iterative_coupling_pism_ocean_prepare_wetdry_geometry {
     _wd_sub=${COUPLE_DIR}/pism_wetdry_usurf_minus_thk.nc
     _wet_out=${COUPLE_DIR}/ice_ocean_wet_mask.nc
     _base_out=${COUPLE_DIR}/ice_shelf_base_geometry.nc
+    _level_out=${COUPLE_DIR}/ice_shelf_base_level.nc
+    typeset _sbl_sent="${WETDRY_SHELF_BASE_LEVEL_SENTINEL:--9999.0}"
 
-    ncks -O -d time,-1 -v mask,usurf,thk ${PISM_RESTART_OUTPUT_FILE} ${_wd_src}
+    ncks -O -d time,-1 -v mask,usurf,thk ${PISM_FORCING_EXTRA_FILE} ${_wd_src}
 
     # 1 = open ocean (PISM 4) or ice shelf cell (PISM 3); 0 elsewhere
     $cdo -s -eqc,3 -selname,mask ${_wd_src} ${_wd_m3}
@@ -476,12 +484,31 @@ function iterative_coupling_pism_ocean_prepare_wetdry_geometry {
     ncatted -O -a long_name,shelf_base,o,c,"Ice shelf base elevation usurf-thk (PISM floating cells only)" \
         -a units,shelf_base,o,c,"m" ${_base_out}
 
+    $cdo -O expr,"shelf_base_level=(mask==4)*0.0+(mask==3)*(usurf-thk)+(mask!=4)*(mask!=3)*(${_sbl_sent})" \
+        ${_wd_src} ${_level_out}
+    ncatted -O -a long_name,shelf_base_level,o,c,"0=ocean(4), usurf-thk=shelf(3), else sentinel" \
+        -a units,shelf_base_level,o,c,"m" ${_level_out}
+
+    # FESOM wetdry mesh cutting: full-field usurf-thk + grounded (mask==2) mask for couple_in nodhn
+    _cut_out=${COUPLE_DIR}/ice_wetdry_cut_fields.nc
+    _cut_g=${COUPLE_DIR}/pism_wetdry_grounded_mask_expr.nc
+    _cut_sb=${COUPLE_DIR}/pism_wetdry_shelf_base_ut_rename.nc
+    $cdo -O expr,'grounded_ice_mask=(mask==2)*1.0+(mask!=2)*0.0' ${_wd_src} ${_cut_g}
+    $cdo -O -chname,usurf,shelf_base_ut ${_wd_sub} ${_cut_sb}
+    $cdo -O merge ${_cut_sb} ${_cut_g} ${_cut_out}
+    ncatted -O -a long_name,shelf_base_ut,o,c,"PISM usurf-thk on full grid (m); use with grounded_ice_mask for nodhn" \
+        -a units,shelf_base_ut,o,c,"m" \
+        -a long_name,grounded_ice_mask,o,c,"1 where PISM mask==2 grounded ice, else 0" \
+        -a units,grounded_ice_mask,o,c,"1" ${_cut_out}
+    rm -f ${_cut_sb} ${_cut_g}
+
     for _tfile in ${_wd_src} ${_wd_m3} ${_wd_m4} ${_wd_max} ${_wd_sub} ${_wd_ift}; do
         rm -f ${_tfile}
     done
 
-    unset _wd_src _wd_m3 _wd_m4 _wd_max _wd_sub _wd_ift _wet_out _base_out _tfile
-    echo "     ...wetdry geometry written to ${COUPLE_DIR}/ice_ocean_wet_mask.nc and ice_shelf_base_geometry.nc"
+    unset _wd_src _wd_m3 _wd_m4 _wd_max _wd_sub _wd_ift _wet_out _base_out _level_out _tfile _sbl_sent _cut_out _cut_g _cut_sb
+    echo "     ...wetdry geometry written to ${COUPLE_DIR}/ice_ocean_wet_mask.nc ice_shelf_base_geometry.nc ice_shelf_base_level.nc"
+    echo "     ...wetdry cut fields: ${COUPLE_DIR}/ice_wetdry_cut_fields.nc (shelf_base_ut, grounded_ice_mask)"
 }
 
 
@@ -629,7 +656,9 @@ function iterative_coupling_pism_ocean_prepare_combine_forcings {
 	ice_file_at_ocean.laststep.mask_iceshelf.nc \
 	ice_file_at_ocean.laststep.mask_land.nc \
 	ice_ocean_wet_mask.nc \
-	ice_shelf_base_geometry.nc
+	ice_shelf_base_geometry.nc \
+	ice_shelf_base_level.nc \
+	ice_wetdry_cut_fields.nc
     do
 	if [ -f $_file1 ] ; then
 	    # Drop time axis is done above (search for ncwa)
