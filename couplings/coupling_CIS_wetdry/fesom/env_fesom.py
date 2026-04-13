@@ -27,6 +27,12 @@ def prepare_environment(config):
     general = config["general"]
     couple_dir = general["experiment_couple_dir"].rstrip("/")
     chunk_tag = _wetdry_chunk_tag(general)
+    configured_mesh_dir = config["fesom"]["mesh_dir"]
+    active_submesh_dir = f"{couple_dir}/fesom_wetdry_submesh_active"
+    active_submesh_nod2d = f"{active_submesh_dir}/nod2d.out"
+    mesh_dir_for_chunk = (
+        active_submesh_dir if os.path.isfile(active_submesh_nod2d) else configured_mesh_dir
+    )
 
     environment_dict = {
         "ICE_TO_FESOM": 1,
@@ -34,7 +40,8 @@ def prepare_environment(config):
             config["fesom"].get("use_icebergs", False).__bool__()
         ),
         "FESOM_TO_ICE": int(general["first_run_in_chunk"]),
-        "MESH_DIR_fesom": config["fesom"]["mesh_dir"],
+        # Prefer persistent active wetdry mesh when available; otherwise use configured mesh_dir.
+        "MESH_DIR_fesom": mesh_dir_for_chunk,
         "MESH_ROTATED_fesom": config["fesom"]["mesh_rotated"],
         "DATA_DIR_fesom": config["fesom"]["experiment_outdata_dir"],
         "COUPLE_DIR": general["experiment_couple_dir"],
@@ -53,6 +60,7 @@ def prepare_environment(config):
         "WETDRY_CHUNK_TAG": chunk_tag,
         "WETDRY_MAXMESH_DIR": f"{couple_dir}/fesom_wetdry_maxmesh_{chunk_tag}",
         "WETDRY_SUBMESH_DIR": f"{couple_dir}/fesom_wetdry_submesh_{chunk_tag}",
+        "WETDRY_SUBMESH_ACTIVE_DIR": active_submesh_dir,
         # submesh_partition: fesom_ini scratch work directory (per chunk)
         "WETDRY_SUBMESH_PARTITION_WORK_DIR": f"{couple_dir}/fesom_wetdry_partition_work_{chunk_tag}",
         "WETDRY_RESTART_REMAP_WORK_DIR": f"{couple_dir}/fesom_wetdry_restart_remap_{chunk_tag}",

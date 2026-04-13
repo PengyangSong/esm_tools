@@ -103,7 +103,7 @@ function ice2fesom {
 ##   WETDRY_FESOM_RESTART_YEAR   default chunk start year (env_fesom.py); override if restart filenames differ
 ##   PISM shelf nodhn / post-map depth (cut-fields mode):
 ##   WETDRY_USE_PISM_SHELF_NODHN   default 1; set 0 to keep legacy interpolate_topography + modify_nodhn + aux3d in cutting
-##   WETDRY_PISM_CUT_NC           optional override for ice_wetdry_cut_fields.nc (default ${COUPLE_DIR}/ice_wetdry_cut_fields.nc)
+##   WETDRY_PISM_CUT_NC           optional override for cut-fields source (default ${COUPLE_DIR}/ice_file_at_ocean.combined.nc)
 ##   WETDRY_PISM_MAX_SEARCH_KM     passed to wetdry_maxmesh_nodhn.py
 ##   WETDRY_GROUNDED_NODHN_VALUE  nodhn over grounded ice (default -9999); passed to wetdry_maxmesh_nodhn.py
 ##   WETDRY_BEDROCK_FILE           basename under QGLB global (default bedrock_topography.out)
@@ -172,13 +172,13 @@ function iterative_coupling_ice_fesom_wetdry_submesh_cutting {
     cp -r "$qglb/global" "$subd/" || return 1
 
     typeset _use_pism_nodhn=0
-    typeset _cut_nc="${WETDRY_PISM_CUT_NC:-${COUPLE_DIR}/ice_wetdry_cut_fields.nc}"
+    typeset _cut_nc="${WETDRY_PISM_CUT_NC:-${COUPLE_DIR}/ice_file_at_ocean.combined.nc}"
     if [[ "${WETDRY_USE_PISM_SHELF_NODHN:-1}" != "0" ]]; then
         if [[ -f "$_cut_nc" ]]; then
             _use_pism_nodhn=1
         else
             echo "ERROR: cut-fields mode requires ${_cut_nc} for wetdry_maxmesh_nodhn.py."
-            echo "       Ensure pism2ocean writes ice_wetdry_cut_fields.nc before FESOM couple_in."
+            echo "       Ensure cut-fields variables shelf_base_ut and grounded_ice_mask are present."
             return 1
         fi
     fi
@@ -427,6 +427,12 @@ function iterative_coupling_ice_fesom_wetdry_submesh_partition {
       cp mesh_cst_tmp.nc "${mesh_dir}/mesh_cst.nc" || exit 1
       rm -f *.out *_tmp.nc 2>/dev/null || true
     ) || return 1
+
+    if [[ -n "${WETDRY_SUBMESH_ACTIVE_DIR:-}" ]]; then
+        rm -rf "${WETDRY_SUBMESH_ACTIVE_DIR}" || return 1
+        ln -s "${subd}" "${WETDRY_SUBMESH_ACTIVE_DIR}" || return 1
+        echo " *   active wetdry submesh -> ${WETDRY_SUBMESH_ACTIVE_DIR} -> ${subd}"
+    fi
 
     echo " *   submesh_partition done (mesh_cst.nc under $subd)"
     return 0
