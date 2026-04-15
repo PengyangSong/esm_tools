@@ -30,9 +30,48 @@ def prepare_environment(config):
     configured_mesh_dir = config["fesom"]["mesh_dir"]
     active_submesh_dir = f"{couple_dir}/fesom_wetdry_submesh_active"
     active_submesh_nod2d = f"{active_submesh_dir}/nod2d.out"
+    mesh_state_file = f"{couple_dir}/wetdry_last_mesh_dir.txt"
+
+    def _mesh_real_if_valid(path):
+        if not path:
+            return ""
+        real = os.path.realpath(path)
+        return real if os.path.isfile(os.path.join(real, "nod2d.out")) else ""
+
+    configured_mesh_dir_real = _mesh_real_if_valid(configured_mesh_dir)
+    active_mesh_dir_real = _mesh_real_if_valid(active_submesh_dir)
+
+    state_mesh_dir_real = ""
+    if os.path.isfile(mesh_state_file):
+        try:
+            with open(mesh_state_file, "r", encoding="utf-8") as f:
+                state_mesh_dir_real = _mesh_real_if_valid(f.read().strip())
+        except OSError:
+            state_mesh_dir_real = ""
+
+    if not state_mesh_dir_real and configured_mesh_dir_real:
+        # Bootstrap state from configured mesh (e.g. chunk 1 base mesh).
+        state_mesh_dir_real = configured_mesh_dir_real
+        try:
+            with open(mesh_state_file, "w", encoding="utf-8") as f:
+                f.write(state_mesh_dir_real + "\n")
+        except OSError:
+            pass
+
     mesh_dir_for_chunk = (
-        active_submesh_dir if os.path.isfile(active_submesh_nod2d) else configured_mesh_dir
+        active_mesh_dir_real or configured_mesh_dir_real or os.path.realpath(configured_mesh_dir)
     )
+    # Optional explicit remap source from runscript. If unset, use previous-state mesh.
+    configured_last_mesh = config["fesom"].get("wetdry_last_mesh_dir", "")
+    if configured_last_mesh:
+        last_mesh_for_remap = _mesh_real_if_valid(configured_last_mesh) or os.path.realpath(
+            configured_last_mesh
+        )
+    elif state_mesh_dir_real:
+        # Chunk handoff state (absolute physical path) written by coupling.
+        last_mesh_for_remap = state_mesh_dir_real
+    else:
+        last_mesh_for_remap = mesh_dir_for_chunk
 
     environment_dict = {
         "ICE_TO_FESOM": 1,
@@ -40,7 +79,8 @@ def prepare_environment(config):
             config["fesom"].get("use_icebergs", False).__bool__()
         ),
         "FESOM_TO_ICE": int(general["first_run_in_chunk"]),
-        # Prefer persistent active wetdry mesh when available; otherwise use configured mesh_dir.
+        # Coupling scripts should work on physical paths (no symlink ambiguity).
+        # FESOM namelist MeshPath remains controlled by runscript YAML (fesom.mesh_dir).
         "MESH_DIR_fesom": mesh_dir_for_chunk,
         "MESH_ROTATED_fesom": config["fesom"]["mesh_rotated"],
         "DATA_DIR_fesom": config["fesom"]["experiment_outdata_dir"],
@@ -61,6 +101,8 @@ def prepare_environment(config):
         "WETDRY_MAXMESH_DIR": f"{couple_dir}/fesom_wetdry_maxmesh_{chunk_tag}",
         "WETDRY_SUBMESH_DIR": f"{couple_dir}/fesom_wetdry_submesh_{chunk_tag}",
         "WETDRY_SUBMESH_ACTIVE_DIR": active_submesh_dir,
+        "WETDRY_LAST_MESH_DIR": last_mesh_for_remap,
+        "WETDRY_LAST_MESH_STATE_FILE": mesh_state_file,
         # submesh_partition: fesom_ini scratch work directory (per chunk)
         "WETDRY_SUBMESH_PARTITION_WORK_DIR": f"{couple_dir}/fesom_wetdry_partition_work_{chunk_tag}",
         "WETDRY_RESTART_REMAP_WORK_DIR": f"{couple_dir}/fesom_wetdry_restart_remap_{chunk_tag}",

@@ -19,10 +19,54 @@ function ice2fesom {
         return 1
     }
 
+    # Freeze restart-remap source mesh for this call.
+    # Priority: explicit WETDRY_LAST_MESH_DIR -> state file -> MESH_DIR_fesom.
+    typeset _wd_state_file="${WETDRY_LAST_MESH_STATE_FILE:-${COUPLE_DIR}/wetdry_last_mesh_dir.txt}"
+    typeset _wd_last_src=""
+    if [[ -n "${WETDRY_LAST_MESH_DIR:-}" ]] && [[ -d "${WETDRY_LAST_MESH_DIR}" ]] && [[ -f "${WETDRY_LAST_MESH_DIR}/nod2d.out" ]]; then
+        _wd_last_src="$(cd "${WETDRY_LAST_MESH_DIR}" 2>/dev/null && pwd -P)"
+    fi
+    if [[ -z "${_wd_last_src}" ]] && [[ -f "${_wd_state_file}" ]]; then
+        typeset _wd_state_mesh
+        IFS= read -r _wd_state_mesh < "${_wd_state_file}"
+        if [[ -n "${_wd_state_mesh}" ]] && [[ -d "${_wd_state_mesh}" ]] && [[ -f "${_wd_state_mesh}/nod2d.out" ]]; then
+            _wd_last_src="$(cd "${_wd_state_mesh}" 2>/dev/null && pwd -P)"
+        fi
+        unset _wd_state_mesh
+    fi
+    if [[ -z "${_wd_last_src}" ]] && [[ -n "${MESH_DIR_fesom:-}" ]] && [[ -d "${MESH_DIR_fesom}" ]] && [[ -f "${MESH_DIR_fesom}/nod2d.out" ]]; then
+        _wd_last_src="$(cd "${MESH_DIR_fesom}" 2>/dev/null && pwd -P)"
+    fi
+    if [[ -n "${_wd_last_src}" ]]; then
+        export WETDRY_LAST_MESH_DIR="${_wd_last_src}"
+        echo " *   WETDRY_LAST_MESH_DIR frozen to ${WETDRY_LAST_MESH_DIR}"
+    fi
+    unset _wd_last_src
+
+    typeset _wdsuf="${WETDRY_CHUNK_TAG:+_${WETDRY_CHUNK_TAG}}"
+    typeset _wd_next_mesh="${WETDRY_SUBMESH_DIR:-${COUPLE_DIR}/fesom_wetdry_submesh${_wdsuf}}"
+
     # (1) submesh_cutting → submesh_mapping → submesh_partition (wet-dry mesh under COUPLE_DIR)
     iterative_coupling_ice_fesom_generate_submesh
     # (2) Remap FESOM restart onto wet-dry submesh (last_mesh → submesh_dir)
     iterative_coupling_ice_fesom_modify_fesom_restart
+    # (3) Publish active wetdry mesh only after restart remap has used last_mesh.
+    if [[ -n "${WETDRY_SUBMESH_ACTIVE_DIR:-}" ]] && [[ -d "${_wd_next_mesh}" ]] && [[ -f "${_wd_next_mesh}/nod2d.out" ]]; then
+        rm -rf "${WETDRY_SUBMESH_ACTIVE_DIR}" || return 1
+        ln -s "${_wd_next_mesh}" "${WETDRY_SUBMESH_ACTIVE_DIR}" || return 1
+        echo " *   active wetdry submesh -> ${WETDRY_SUBMESH_ACTIVE_DIR} -> ${_wd_next_mesh}"
+    fi
+    if [[ -d "${_wd_next_mesh}" ]] && [[ -f "${_wd_next_mesh}/nod2d.out" ]]; then
+        typeset _wd_next_real
+        _wd_next_real="$(cd "${_wd_next_mesh}" 2>/dev/null && pwd -P)"
+        if [[ -n "${_wd_next_real}" ]]; then
+            printf "%s\n" "${_wd_next_real}" > "${_wd_state_file}"
+            echo " *   updated wetdry last-mesh state: ${_wd_state_file} -> ${_wd_next_real}"
+        fi
+        unset _wd_next_real
+    fi
+    unset _wdsuf _wd_next_mesh
+    unset _wd_state_file
 
     if [[ "x${FESOM_PREP_ICEBERG_DISCHARGE:-0}" == "x1" ]]; then
         echo " *   Iceberg discharge file preparation (use_icebergs)"
@@ -428,12 +472,6 @@ function iterative_coupling_ice_fesom_wetdry_submesh_partition {
       rm -f *.out *_tmp.nc 2>/dev/null || true
     ) || return 1
 
-    if [[ -n "${WETDRY_SUBMESH_ACTIVE_DIR:-}" ]]; then
-        rm -rf "${WETDRY_SUBMESH_ACTIVE_DIR}" || return 1
-        ln -s "${subd}" "${WETDRY_SUBMESH_ACTIVE_DIR}" || return 1
-        echo " *   active wetdry submesh -> ${WETDRY_SUBMESH_ACTIVE_DIR} -> ${subd}"
-    fi
-
     echo " *   submesh_partition done (mesh_cst.nc under $subd)"
     return 0
 }
@@ -513,6 +551,13 @@ function iterative_coupling_ice_fesom_modify_fesom_restart {
     fi
     if [[ ! -d "$next_mesh" ]] || [[ ! -f "$next_mesh/nod2d.out" ]]; then
         echo " *   Submesh $next_mesh not ready — run submesh_cutting / submesh_mapping / submesh_partition first — skip."
+        return 0
+    fi
+    # Always dereference to physical paths for coupling internals.
+    last_mesh="$(cd "$last_mesh" 2>/dev/null && pwd -P)"
+    next_mesh="$(cd "$next_mesh" 2>/dev/null && pwd -P)"
+    if [[ -z "$last_mesh" ]] || [[ -z "$next_mesh" ]]; then
+        echo " *   Could not resolve physical last/next mesh paths — skip."
         return 0
     fi
     if [[ -z "$yr" ]]; then
