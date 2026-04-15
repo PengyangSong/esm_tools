@@ -1,3 +1,4 @@
+import os
 import sys
 
 from loguru import logger
@@ -277,7 +278,42 @@ class coupler_class:
                     restart_file + "_recv", all_lefts, all_leftmodels, full_config
                 )
 
+    def _apply_wetdry_fesom_nx_override(self, full_config):
+        """
+        For iterative wetdry runs, override FESOM/OASIS feom grid nx from persisted state.
+        This guarantees namcouple uses the current mesh node count.
+        """
+        if self.coupler.name != "oasis3mct":
+            return
+        if "fesom" not in full_config:
+            return
+
+        fesom_cfg = full_config["fesom"]
+        grids = fesom_cfg.get("grids", {})
+        if "feom" not in grids:
+            return
+
+        couple_dir = full_config.get("general", {}).get("experiment_couple_dir", "")
+        if not couple_dir:
+            return
+
+        nx_state_file = os.path.join(couple_dir.rstrip("/"), "wetdry_last_mesh_nx.txt")
+        if not os.path.isfile(nx_state_file):
+            return
+
+        try:
+            with open(nx_state_file, "r", encoding="utf-8") as f:
+                nx = int(f.read().strip())
+            if nx <= 0:
+                return
+        except (OSError, ValueError):
+            return
+
+        fesom_cfg["nx"] = nx
+        fesom_cfg["grids"]["feom"]["nx"] = nx
+
     def add_couplings(self, full_config):
+        self._apply_wetdry_fesom_nx_override(full_config)
         self.coupler.next_coupling = 1
         if self.coupler.name == "oasis3mct":
             if "coupling_target_fields" in full_config[self.name]:

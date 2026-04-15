@@ -31,6 +31,7 @@ def prepare_environment(config):
     active_submesh_dir = f"{couple_dir}/fesom_wetdry_submesh_active"
     active_submesh_nod2d = f"{active_submesh_dir}/nod2d.out"
     mesh_state_file = f"{couple_dir}/wetdry_last_mesh_dir.txt"
+    mesh_nx_state_file = f"{couple_dir}/wetdry_last_mesh_nx.txt"
 
     def _mesh_real_if_valid(path):
         if not path:
@@ -57,6 +58,38 @@ def prepare_environment(config):
                 f.write(state_mesh_dir_real + "\n")
         except OSError:
             pass
+
+    state_mesh_nx = None
+    if os.path.isfile(mesh_nx_state_file):
+        try:
+            with open(mesh_nx_state_file, "r", encoding="utf-8") as f:
+                nx_txt = f.read().strip()
+                nx_val = int(nx_txt)
+                if nx_val > 0:
+                    state_mesh_nx = nx_val
+        except (OSError, ValueError):
+            state_mesh_nx = None
+
+    # Bootstrap wetdry nx state from configured mesh nod2d if missing.
+    if state_mesh_nx is None and configured_mesh_dir_real:
+        nod2d_path = os.path.join(configured_mesh_dir_real, "nod2d.out")
+        try:
+            with open(nod2d_path, "r", encoding="utf-8") as f:
+                nx_val = int(f.readline().strip().split()[0])
+                if nx_val > 0:
+                    state_mesh_nx = nx_val
+                    with open(mesh_nx_state_file, "w", encoding="utf-8") as outf:
+                        outf.write(f"{nx_val}\n")
+        except (OSError, ValueError, IndexError):
+            state_mesh_nx = None
+
+    if state_mesh_nx is not None:
+        # Ensure chunk prepare/namcouple generation uses the previous chunk's submesh node count.
+        config["fesom"]["nx"] = state_mesh_nx
+        # OASIS namcouple uses component grid sizes (fesom.grids.feom.nx),
+        # so update that explicitly as well.
+        if "grids" in config["fesom"] and "feom" in config["fesom"]["grids"]:
+            config["fesom"]["grids"]["feom"]["nx"] = state_mesh_nx
 
     mesh_dir_for_chunk = (
         active_mesh_dir_real or configured_mesh_dir_real or os.path.realpath(configured_mesh_dir)
@@ -103,6 +136,7 @@ def prepare_environment(config):
         "WETDRY_SUBMESH_ACTIVE_DIR": active_submesh_dir,
         "WETDRY_LAST_MESH_DIR": last_mesh_for_remap,
         "WETDRY_LAST_MESH_STATE_FILE": mesh_state_file,
+        "WETDRY_LAST_MESH_NX_STATE_FILE": mesh_nx_state_file,
         # submesh_partition: fesom_ini scratch work directory (per chunk)
         "WETDRY_SUBMESH_PARTITION_WORK_DIR": f"{couple_dir}/fesom_wetdry_partition_work_{chunk_tag}",
         "WETDRY_RESTART_REMAP_WORK_DIR": f"{couple_dir}/fesom_wetdry_restart_remap_{chunk_tag}",

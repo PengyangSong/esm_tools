@@ -22,6 +22,7 @@ function ice2fesom {
     # Freeze restart-remap source mesh for this call.
     # Priority: explicit WETDRY_LAST_MESH_DIR -> state file -> MESH_DIR_fesom.
     typeset _wd_state_file="${WETDRY_LAST_MESH_STATE_FILE:-${COUPLE_DIR}/wetdry_last_mesh_dir.txt}"
+    typeset _wd_nx_state_file="${WETDRY_LAST_MESH_NX_STATE_FILE:-${COUPLE_DIR}/wetdry_last_mesh_nx.txt}"
     typeset _wd_last_src=""
     if [[ -n "${WETDRY_LAST_MESH_DIR:-}" ]] && [[ -d "${WETDRY_LAST_MESH_DIR}" ]] && [[ -f "${WETDRY_LAST_MESH_DIR}/nod2d.out" ]]; then
         _wd_last_src="$(cd "${WETDRY_LAST_MESH_DIR}" 2>/dev/null && pwd -P)"
@@ -63,10 +64,20 @@ function ice2fesom {
             printf "%s\n" "${_wd_next_real}" > "${_wd_state_file}"
             echo " *   updated wetdry last-mesh state: ${_wd_state_file} -> ${_wd_next_real}"
         fi
+        typeset _wd_next_nx
+        _wd_next_nx="$(awk 'NR==1{print int($1)}' "${_wd_next_mesh}/nod2d.out" 2>/dev/null)"
+        if [[ -n "${_wd_next_nx}" ]] && [[ "${_wd_next_nx}" == +([0-9]) ]] && [[ "${_wd_next_nx}" -gt 0 ]]; then
+            printf "%s\n" "${_wd_next_nx}" > "${_wd_nx_state_file}"
+            echo " *   updated wetdry nx state: ${_wd_nx_state_file} -> ${_wd_next_nx}"
+        else
+            echo "WARNING: could not determine node count from ${_wd_next_mesh}/nod2d.out; wetdry nx state not updated."
+        fi
+        unset _wd_next_nx
         unset _wd_next_real
     fi
     unset _wdsuf _wd_next_mesh
     unset _wd_state_file
+    unset _wd_nx_state_file
 
     if [[ "x${FESOM_PREP_ICEBERG_DISCHARGE:-0}" == "x1" ]]; then
         echo " *   Iceberg discharge file preparation (use_icebergs)"
