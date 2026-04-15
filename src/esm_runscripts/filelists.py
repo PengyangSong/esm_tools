@@ -430,16 +430,35 @@ def get_target_name_from_wildcard(config, model, filename, filetype, descr):
 
 
 def complete_restart_in(config):
+    def _is_iterative_wetdry_scope(model_name):
+        """
+        Restrict special restart-in handling to iterative wetdry coupling runs only.
+        """
+        if model_name != "oasis3mct":
+            return False
+        general_cfg = config.get("general", {})
+        if not general_cfg.get("iterative_coupling", False):
+            return False
+        fesom_cfg = config.get("fesom", {})
+        mesh_dir = str(fesom_cfg.get("mesh_dir", ""))
+        has_wetdry_keys = any(str(k).startswith("wetdry_") for k in fesom_cfg.keys())
+        has_wetdry_mesh_path = "fesom_wetdry_submesh" in mesh_dir or "wetdry" in mesh_dir
+        return has_wetdry_keys or has_wetdry_mesh_path
+
     for model in config["general"]["valid_model_names"]:
-        if (
-            not config[model]["lresume"] and config["general"]["run_number"] == 1
-        ):  # isn't that redundant? if run_number > 1 then lresume == True?
-            if "restart_in_sources" in config[model]:
-                del config[model]["restart_in_sources"]
-            if "restart_in_targets" in config[model]:
-                del config[model]["restart_in_targets"]
-            if "restart_in_intermediate" in config[model]:
-                del config[model]["restart_in_intermediate"]
+        lresume_off = not config[model]["lresume"]
+        first_run = config["general"]["run_number"] == 1
+        wetdry_iterative_restart_reset = lresume_off and _is_iterative_wetdry_scope(model)
+        if lresume_off and (first_run or wetdry_iterative_restart_reset):
+            for key in (
+                "restart_in_files",
+                "restart_in_in_work",
+                "restart_in_sources",
+                "restart_in_targets",
+                "restart_in_intermediate",
+            ):
+                if key in config[model]:
+                    del config[model][key]
         if "restart_in_sources" in config[model]:
             for category in list(config[model]["restart_in_sources"].keys()):
                 if not config[model]["restart_in_sources"][category].startswith("/"):
