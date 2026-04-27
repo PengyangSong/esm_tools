@@ -448,11 +448,28 @@ def complete_restart_in(config):
         fesom_cfg = config.get("fesom", {})
         return bool(fesom_cfg.get("iterative_wetdry_mesh", False))
 
+    general_cfg = config.get("general", {})
+    # Chunk boundary (iterative coupling): FESOM nx can change while oasis3mct
+    # still has lresume True; OASIS must rebuild remap weights, not reuse
+    # restart_in from the previous mesh (MCT column count vs vector length).
+    run_ic = general_cfg.get("run_in_chunk", "")
+    at_chunk_start = bool(general_cfg.get("first_run_in_chunk", False)) or run_ic in (
+        "first",
+        "first_and_last",
+    )
+
     for model in config["general"]["valid_model_names"]:
         lresume_off = not config[model]["lresume"]
         first_run = config["general"]["run_number"] == 1
         wetdry_iterative_restart_reset = lresume_off and _is_iterative_wetdry_scope(model)
+        wetdry_chunk_oasis_refresh = _is_iterative_wetdry_scope(model) and at_chunk_start
         if lresume_off and (first_run or wetdry_iterative_restart_reset):
+            clear_restart_in = True
+        elif wetdry_chunk_oasis_refresh:
+            clear_restart_in = True
+        else:
+            clear_restart_in = False
+        if clear_restart_in:
             for key in (
                 "restart_in_files",
                 "restart_in_in_work",

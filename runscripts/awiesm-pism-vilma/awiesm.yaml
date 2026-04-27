@@ -76,7 +76,8 @@ fesom:
     # Set True when using coupling_CIS_wetdry: the FESOM submesh changes each
     # chunk so OASIS remap-weight restart files must NOT be reused.  This flag
     # is read by filelists.py::complete_restart_in to clear restart_in_* for
-    # oasis3mct whenever lresume is False.
+    # oasis3mct on cold start (lresume off) and at each chunk first run even
+    # when oasis lresume is True (otherwise MCT sparse matrix vs nx mismatch).
     iterative_wetdry_mesh: False
     workflow:
         next_run_triggered_by: couple_out
