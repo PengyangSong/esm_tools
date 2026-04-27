@@ -24,6 +24,36 @@ def _wetdry_chunk_tag(general):
 
 
 def prepare_environment(config):
+    """
+    Build the shell environment dict for FESOM wetdry coupling scripts.
+
+    Three mesh directories play different roles:
+
+    * ``configured_mesh_dir``  -- fesom.mesh_dir from the runscript YAML.
+      This is the "base mesh" the user originally configured.  Used as the
+      initial bootstrap and as a last-resort fallback.
+
+    * ``active_submesh_dir``   -- symlink updated by ice2fesom after each
+      chunk's submesh generation (fesom_wetdry_submesh_active -> latest
+      chunk submesh).  When it exists and contains nod2d.out, it is the
+      preferred source for MESH_DIR_fesom so that FESOM runs on the most
+      recent wetdry submesh.
+
+    * ``state_mesh_dir``       -- absolute physical path persisted in the
+      text file ``wetdry_last_mesh_dir.txt`` under couple_dir.  Records
+      which mesh the *previous* chunk's FESOM restart was built on.
+      Used as WETDRY_LAST_MESH_DIR so the restart remap always knows the
+      correct source mesh, even if active_submesh_dir has already been
+      updated.
+
+    Priority for MESH_DIR_fesom (the mesh FESOM will *run on* this chunk):
+        active_submesh > configured_mesh > realpath(configured_mesh)
+
+    Priority for WETDRY_LAST_MESH_DIR (source mesh for restart remap):
+        explicit runscript override (fesom.wetdry_last_mesh_dir)
+        > state file (wetdry_last_mesh_dir.txt)
+        > MESH_DIR_fesom (fallback)
+    """
     general = config["general"]
     couple_dir = general["experiment_couple_dir"].rstrip("/")
     chunk_tag = _wetdry_chunk_tag(general)
@@ -140,7 +170,11 @@ def prepare_environment(config):
         # submesh_partition: fesom_ini scratch work directory (per chunk)
         "WETDRY_SUBMESH_PARTITION_WORK_DIR": f"{couple_dir}/fesom_wetdry_partition_work_{chunk_tag}",
         "WETDRY_RESTART_REMAP_WORK_DIR": f"{couple_dir}/fesom_wetdry_restart_remap_{chunk_tag}",
-        # Default: chunk calendar start year; override if your fesom.<year>.oce.restart uses another year.
+        # FESOM restart files are named fesom.<year>.oce.restart.nc where <year>
+        # is the year the restart was *written* — typically the last year of the
+        # previous chunk.  For a chunk starting at year Y, the restart from the
+        # previous chunk is year Y-1.  Override via fesom.wetdry_restart_year in
+        # the runscript if a different convention is used (e.g. year 0 restarts).
         "WETDRY_FESOM_RESTART_YEAR": str(int(general["chunk_start_date"].syear)-1),
     }
 

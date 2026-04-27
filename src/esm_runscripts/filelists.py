@@ -433,6 +433,12 @@ def complete_restart_in(config):
     def _is_iterative_wetdry_scope(model_name):
         """
         Restrict special restart-in handling to iterative wetdry coupling runs only.
+        Returns True when the OASIS coupler should regenerate remap weights
+        (i.e. not reuse restart files from the previous chunk) because the
+        FESOM mesh changes between chunks.
+
+        Detection uses the explicit flag ``fesom.iterative_wetdry_mesh: True``
+        in the runscript / setup YAML.
         """
         if model_name != "oasis3mct":
             return False
@@ -440,10 +446,7 @@ def complete_restart_in(config):
         if not general_cfg.get("iterative_coupling", False):
             return False
         fesom_cfg = config.get("fesom", {})
-        mesh_dir = str(fesom_cfg.get("mesh_dir", ""))
-        has_wetdry_keys = any(str(k).startswith("wetdry_") for k in fesom_cfg.keys())
-        has_wetdry_mesh_path = "fesom_wetdry_submesh" in mesh_dir or "wetdry" in mesh_dir
-        return has_wetdry_keys or has_wetdry_mesh_path
+        return bool(fesom_cfg.get("iterative_wetdry_mesh", False))
 
     for model in config["general"]["valid_model_names"]:
         lresume_off = not config[model]["lresume"]

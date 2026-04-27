@@ -116,9 +116,11 @@ def fesom2_read_mesh(mesh_path: str) -> FESOM2_mesh:
         map_n = np.arange(1, num_nodes+1).astype(int)
         map_e = np.arange(1, num_elems+1).astype(int)
 
-    # Modify bottom depth according to FESOM2 src code
+    # Clip bottom depth to the 5th vertical level, matching FESOM2 source code
+    # in gen_modules_config.F90 (subroutine init_bottom_elem_thickness).
+    # Assumes the mesh has at least 5 vertical levels.
     thers_zbar_lev = 5
-    thers_depth = zbar[thers_zbar_lev-1]  # Python index starts from zero
+    thers_depth = zbar[thers_zbar_lev-1]  # Python 0-based index -> Fortran level 5
     bot_raw = np.where(bot_raw > thers_depth, thers_depth, bot_raw)
 
     # Fix for python because index starts from zero
@@ -214,6 +216,8 @@ def fesom2_init_thickness_ale(mesh: "FESOM2_mesh") -> "FESOM2_mesh":
             esrf[ij] = zbar[ule]
 
     # --- define nod_in_elem2D, nlevels_nod2D_min ---
+    # Buffer size 10: for a healthy triangular mesh, a node should have fewer
+    # than 10 adjacent elements; higher valence implies degenerate angles.
     nod_in_elem2D = np.full((mesh.dim_n, 10), np.nan)
     nod_in_elem2D_num = np.zeros(mesh.dim_n, dtype=int)
 
@@ -429,7 +433,10 @@ def fesom2_map_field(mesh1: "FESOM2_mesh", mesh2: "FESOM2_mesh", var_in: np.ndar
 
             var_out[:, k] = layer_out
 
-        # Apply extrapolation if needed
+        # Apply extrapolation if needed.
+        # Only node-based fields use "extrap" (temp/salt); element-based 3D
+        # fields are not expected here.  If they were, they would fall through
+        # to strategy=="zero" which replaces NaN with 0.
         if strategy == "extrap" and info["type"] == "node":
             var_out = fesom2_extrap_nod3D(var_out, mesh2)
             var_out = fesom2_final_fill_nod3D(var_out, mesh2)
@@ -451,7 +458,10 @@ def fesom2_map_field(mesh1: "FESOM2_mesh", mesh2: "FESOM2_mesh", var_in: np.ndar
         var_max = np.full(dim_max, np.nan)
         var_max[map1] = var_tmp.flatten()
 
-        # Map to target mesh
+        # Map to target mesh.
+        # Reshape to (dim2, 1): 2D surface fields need a trailing singleton
+        # dimension so that NetCDF write (nc_out.variables[varname][:] = var_out)
+        # broadcasts correctly into the (time, nod2d) output layout.
         var_out = var_max[map2].reshape(-1, 1)
 
         # 2D var only filled with zero
@@ -465,11 +475,19 @@ def fesom2_map_field(mesh1: "FESOM2_mesh", mesh2: "FESOM2_mesh", var_in: np.ndar
 
 
 def fesom2_extrap_nod3D_vertical(arr: np.ndarray, mesh: "FESOM2_mesh") -> None:
-    """In-place vertical fill (cavity bottom-up, then ocean top-down)."""
+    """In-place vertical fill: first sweep bottom-up (propagate from k+1 to k),
+    then sweep top-down (propagate from k-1 to k).
+
+    Note: the bottom-up step uses ``mesh.nl_min - 1`` as the range step.
+    Since nl_min is a mesh-wide constant (currently always 0), the step
+    evaluates to -1.  If nl_min were ever >0 the step would be 0 or positive
+    and the loop would raise ValueError or become a no-op."""
     for ij in range(mesh.dim_n):
+        # bottom-up: copy from layer k+1 into layer k when k is NaN
         for k in range(mesh.nl_max - 1, -1, mesh.nl_min - 1):
             if not np.isnan(arr[ij, k + 1]) and np.isnan(arr[ij, k]):
                 arr[ij, k] = arr[ij, k + 1]
+        # top-down: copy from layer k-1 into layer k when k is NaN
         for k in range(mesh.nl_min + 1, mesh.nl_max + 1):
             if not np.isnan(arr[ij, k - 1]) and np.isnan(arr[ij, k]):
                 arr[ij, k] = arr[ij, k - 1]
