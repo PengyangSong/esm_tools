@@ -476,7 +476,7 @@ function iterative_coupling_pism_ocean_convert_mass_loss_to_mass_flux {
 	    ;;
 	water_loss)
 	    _unit="m s-1"
-	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_density_ice}"
+	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_density}"
 	    ;;
 	mass_loss)
 	    _unit="kg m-2 s-1"
@@ -488,7 +488,7 @@ function iterative_coupling_pism_ocean_convert_mass_loss_to_mass_flux {
 	    ;;
 	water_abs)
 	    _unit="m s-1"
-	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_recipro_grid_area} ${MUL_density_ice}"
+	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_recipro_grid_area} ${MUL_density}"
 	    ;;
 	mass_abs)
 	    _unit="kg m-2 s-1"

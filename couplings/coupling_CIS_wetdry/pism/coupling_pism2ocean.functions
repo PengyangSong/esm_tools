@@ -448,11 +448,24 @@ function iterative_coupling_pism_ocean_prepare_ocean_update_mask_forcing {
 
 
 ## @fn iterative_coupling_pism_ocean_prepare_wetdry_geometry
-## @brief PISM mask==4 (ice-free ocean) or mask==3 (floating / ice shelf): combined wet mask;
-##        shelf_base = usurf - thk on mask==3 only (ice-shelf base elevation, m).
-##        shelf_base_level = 0 (mask4), usurf-thk (mask3), WETDRY_SHELF_BASE_LEVEL_SENTINEL elsewhere (default -9999).
-##        Also writes ice_wetdry_cut_fields.nc: shelf_base_ut (= usurf-thk on full grid) and grounded_ice_mask (=1 where mask==2).
-##        Writes ice_ocean_wet_mask.nc, ice_shelf_base_geometry.nc, ice_shelf_base_level.nc in COUPLE_DIR.
+## @brief Derive wet/dry geometry fields from PISM output for FESOM submesh cutting.
+##
+## Uses the PISM integer "mask" variable whose cell values are:
+##   0 = ice-free land (bedrock above sea level, no ice)
+##   2 = grounded ice  (ice sitting on bedrock below or above sea level)
+##   3 = floating ice / ice shelf (ice floating on the ocean)
+##   4 = ice-free ocean (open water, no ice)
+##
+## Outputs written to COUPLE_DIR:
+##   ice_ocean_wet_mask.nc      -- 1 where mask==3 or mask==4, else 0
+##   ice_shelf_base_geometry.nc -- usurf-thk on floating cells (mask==3) only
+##   ice_shelf_base_level.nc    -- 0 for open ocean (mask==4),
+##                                  usurf-thk for shelf (mask==3),
+##                                  sentinel value elsewhere
+##   ice_wetdry_cut_fields.nc   -- shelf_base_ut (usurf-thk on full grid)
+##                                  and grounded_ice_mask (1 where mask==2)
+##                                  Used by wetdry_maxmesh_nodhn.py to
+##                                  derive submesh nodhn.out.
 function iterative_coupling_pism_ocean_prepare_wetdry_geometry {
     echo " *   Preparing PISM ocean+wet mask and ice-shelf base geometry for ${PISM_RESTART_OUTPUT_FILE}"
 
@@ -568,7 +581,7 @@ function iterative_coupling_pism_ocean_convert_mass_loss_to_mass_flux {
 	    ;;
 	water_loss)
 	    _unit="m s-1"
-	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_density_ice}"
+	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_density}"
 	    ;;
 	mass_loss)
 	    _unit="kg m-2 s-1"
@@ -580,7 +593,7 @@ function iterative_coupling_pism_ocean_convert_mass_loss_to_mass_flux {
 	    ;;
 	water_abs)
 	    _unit="m s-1"
-	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_recipro_grid_area} ${MUL_density_ice}"
+	    _CDO_Factor_flags="${MUL_recipro_delta_time} ${MUL_recipro_grid_area} ${MUL_density}"
 	    ;;
 	mass_abs)
 	    _unit="kg m-2 s-1"
