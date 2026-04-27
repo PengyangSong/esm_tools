@@ -1,5 +1,8 @@
 import os
 import glob
+from collections import deque
+from typing import Optional
+
 import numpy as np
 from netCDF4 import Dataset
 
@@ -429,6 +432,9 @@ def fesom2_map_field(mesh1: "FESOM2_mesh", mesh2: "FESOM2_mesh", var_in: np.ndar
         # Apply extrapolation if needed
         if strategy == "extrap" and info["type"] == "node":
             var_out = fesom2_extrap_nod3D(var_out, mesh2)
+            var_out = fesom2_final_fill_nod3D(var_out, mesh2)
+            fesom2_extrap_nod3D_vertical(arr=var_out, mesh=mesh2)
+            fesom2_nan_mask_cavity_bed_nod3D(arr=var_out, mesh=mesh2)
 
         if strategy == "zero":
             var_out[np.isnan(var_out)] = 0.0
@@ -456,6 +462,111 @@ def fesom2_map_field(mesh1: "FESOM2_mesh", mesh2: "FESOM2_mesh", var_in: np.ndar
         var_out = var_out.T
 
     return var_out
+
+
+def fesom2_extrap_nod3D_vertical(arr: np.ndarray, mesh: "FESOM2_mesh") -> None:
+    """In-place vertical fill (cavity bottom-up, then ocean top-down)."""
+    for ij in range(mesh.dim_n):
+        for k in range(mesh.nl_max - 1, -1, mesh.nl_min - 1):
+            if not np.isnan(arr[ij, k + 1]) and np.isnan(arr[ij, k]):
+                arr[ij, k] = arr[ij, k + 1]
+        for k in range(mesh.nl_min + 1, mesh.nl_max + 1):
+            if not np.isnan(arr[ij, k - 1]) and np.isnan(arr[ij, k]):
+                arr[ij, k] = arr[ij, k - 1]
+
+
+def fesom2_nan_mask_cavity_bed_nod3D(arr: np.ndarray, mesh: "FESOM2_mesh") -> None:
+    """In-place: set cavity (k < nlvl_cavity) and inactive depth (k >= nlvl) to NaN at each node."""
+    for ij in range(mesh.dim_n):
+        k_cav = int(mesh.nlvl_cavity[ij])
+        k_bot = int(mesh.nlvl[ij])
+        if k_cav > 0:
+            arr[ij, :k_cav] = np.nan
+        if k_bot < mesh.dim_z:
+            arr[ij, k_bot:] = np.nan
+
+
+def fesom2_final_fill_nod3D(arr: np.ndarray, mesh: "FESOM2_mesh") -> np.ndarray:
+    """
+    After horizontal+vertical extrap, fill any node that still has NaN in its wet column
+    by copying from the nearest graph neighbour (smallest BFS distance) that carries finite
+    wet values; align depths by level where possible, else use the vertically closest donor
+    level. (Nodes unreachable by same-level extrap alone — colloquially "orphan" patches —
+    are handled here; only wet indices are written.)
+    """
+    dim_n = mesh.dim_n
+
+    def graph_nbrs(ii: int):
+        out = set()
+        for n in range(mesh.nod_in_elem2D_num[ii]):
+            el = int(mesh.nod_in_elem2D[ii, n])
+            for m in range(3):
+                nd = int(mesh.elem[el, m])
+                if nd != ii:
+                    out.add(nd)
+        return out
+
+    def has_finite_wet(j: int) -> bool:
+        for k in range(int(mesh.nlvl_cavity[j]), int(mesh.nlvl[j])):
+            if np.isfinite(arr[j, k]):
+                return True
+        return False
+
+    def bfs_donor(start: int) -> Optional[int]:
+        q = deque()
+        seen = {start}
+        for nb in graph_nbrs(start):
+            q.append(nb)
+            seen.add(nb)
+        while q:
+            j = q.popleft()
+            if has_finite_wet(j):
+                return j
+            for nb in graph_nbrs(j):
+                if nb not in seen:
+                    seen.add(nb)
+                    q.append(nb)
+        return None
+
+    def nearest_donor_level(donor: int, k_tgt: int) -> Optional[int]:
+        k0, k1 = int(mesh.nlvl_cavity[donor]), int(mesh.nlvl[donor])
+        best_k = None
+        best_d = 10**9
+        for k in range(k0, k1):
+            if np.isfinite(arr[donor, k]):
+                d = abs(k - k_tgt)
+                if d < best_d:
+                    best_d = d
+                    best_k = k
+        return best_k
+
+    nodes_still_nan_wet = []
+    for ij in range(dim_n):
+        for k in range(int(mesh.nlvl_cavity[ij]), int(mesh.nlvl[ij])):
+            if np.isnan(arr[ij, k]):
+                nodes_still_nan_wet.append(ij)
+                break
+
+    for ij in nodes_still_nan_wet:
+        donor = bfs_donor(ij)
+        if donor is None:
+            continue
+        k0, k1 = int(mesh.nlvl_cavity[ij]), int(mesh.nlvl[ij])
+        for k in range(k0, k1):
+            if not np.isnan(arr[ij, k]):
+                continue
+            if (
+                k >= int(mesh.nlvl_cavity[donor])
+                and k < int(mesh.nlvl[donor])
+                and np.isfinite(arr[donor, k])
+            ):
+                arr[ij, k] = arr[donor, k]
+                continue
+            kd = nearest_donor_level(donor, k)
+            if kd is not None:
+                arr[ij, k] = arr[donor, kd]
+
+    return arr
 
 
 def fesom2_extrap_nod3D(arr: np.ndarray, mesh: "FESOM2_mesh") -> np.ndarray:
@@ -515,26 +626,13 @@ def fesom2_extrap_nod3D(arr: np.ndarray, mesh: "FESOM2_mesh") -> np.ndarray:
                     # found valid neighbouring node
                     if count > 0:
                         tmp_array[ij] = sum_val / count
-                        # optional debug print:
-                        print(f"Extrapolation: nod={ij+1}, lev={k+1}")
                         success = True
 
             work_array = tmp_array
 
         arr[:, k] = work_array
 
-    # --- Vertical extrapolation ---
-    for ij in range(dim_n):
-        # fill cavity (bottom-up)
-        for k in range(mesh.nl_max-1, -1, mesh.nl_min-1):
-            if not np.isnan(arr[ij, k+1]) and np.isnan(arr[ij, k]):
-                arr[ij, k] = arr[ij, k+1]
-
-        # fill bottom (top-down)
-        for k in range(mesh.nl_min+1, mesh.nl_max+1):
-            if not np.isnan(arr[ij, k-1]) and np.isnan(arr[ij, k]):
-                arr[ij, k] = arr[ij, k-1]
-
+    fesom2_extrap_nod3D_vertical(arr, mesh)
     return arr
 
 
