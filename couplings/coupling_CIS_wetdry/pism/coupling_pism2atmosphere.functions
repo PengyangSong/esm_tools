@@ -11,6 +11,10 @@ function pism2atmosphere {
 
 
         echo "PISM_TO_ATMOSPHERE=${PISM_TO_ATMOSPHERE}"
+        PISM_RESIDUAL_FW_TO_OCEAN=${PISM_RESIDUAL_FW_TO_OCEAN:-0}
+        PISM_RESIDUAL_FW_NEG_TOL=${PISM_RESIDUAL_FW_NEG_TOL:-1.0e-14}
+        echo "PISM_RESIDUAL_FW_TO_OCEAN=${PISM_RESIDUAL_FW_TO_OCEAN}"
+        echo "PISM_RESIDUAL_FW_NEG_TOL=${PISM_RESIDUAL_FW_NEG_TOL}"
 
         echo "LA DEBUG: first_year_in_chunk_input = ${first_year_in_chunk_input}"
         echo "LA DEBUG: last_year_in_chunk_restart = ${last_year_in_chunk_restart}"
@@ -379,6 +383,9 @@ function generate_runoff_select_variables {
             else
                 PISM_MASS_LOSS_VARS=${PISM_MASS_LOSS_VARS:-"runoff"}
 	        fi
+            if [[ "x${PISM_RESIDUAL_FW_TO_OCEAN:-0}" == "x1" ]]; then
+                PISM_MASS_LOSS_VARS="${PISM_MASS_LOSS_VARS},basal_mass_flux_floating"
+            fi
             ;;
 	*)
 		echo "Unknown PISM version=${VERSION_pism} specified, exiting..."
@@ -437,6 +444,9 @@ function generate_runoff_transform_units {
 		else
             ncatted -a units,runoff,o,c,"kg second-1 m-2" $ofile tmp; mv tmp $ofile 
 		fi
+                if ncdump -h "$ofile" 2>/dev/null | grep -q "basal_mass_flux_floating"; then
+                    ncatted -a units,basal_mass_flux_floating,o,c,"kg second-1 m-2" "$ofile" tmp; mv tmp "$ofile"
+                fi
                 ;;
 	*)
                 echo "Unknown PISM version=${VERSION_pism} specified, exiting..."
@@ -480,6 +490,25 @@ function generate_runoff_combine_fields {
 		    # Only need tendency of ice amount, do not need to combine fields.
                     cp $ifile $ofile
 		fi
+                if [[ "x${PISM_RESIDUAL_FW_TO_OCEAN:-0}" == "x1" ]]; then
+                    echo " * computing residual freshwater: mass_loss - basal_mass_flux_floating"
+                    if ncdump -h "${ofile}" 2>/dev/null | grep -q "basal_mass_flux_floating"; then
+                        _residual_pre=${COUPLE_DIR}/ice_runoff_flux_total_residual_preclamp.nc
+                        cdo -s expr,'residual_fw=runoff-basal_mass_flux_floating' "${ofile}" "${_residual_pre}" 2>> ${COUPLE_DIR}/cdo_stderr_pism2atm
+                        _min_residual=$(${cdo} -s output -fldmin -timmin "${_residual_pre}" 2>/dev/null | tr -d '[:space:]')
+                        _is_too_negative=$(awk -v minv="${_min_residual:-0}" -v tol="${PISM_RESIDUAL_FW_NEG_TOL}" 'BEGIN{if (minv < -tol) print 1; else print 0}')
+                        if [[ "x${_is_too_negative}" == "x1" ]]; then
+                            echo "ERROR: residual freshwater below negative tolerance."
+                            echo "       min residual = ${_min_residual}, tolerance = -${PISM_RESIDUAL_FW_NEG_TOL}"
+                            echo "       check PISM mass-loss and basal-melt sign conventions."
+                            exit 43
+                        fi
+                        cdo -s setrtoc,-${PISM_RESIDUAL_FW_NEG_TOL},0,0 "${_residual_pre}" "${COUPLE_DIR}/ice_runoff_flux_total_residual.nc" 2>> ${COUPLE_DIR}/cdo_stderr_pism2atm
+                        mv "${COUPLE_DIR}/ice_runoff_flux_total_residual.nc" "${ofile}"
+                    else
+                        echo "WARNING: PISM_RESIDUAL_FW_TO_OCEAN=1 but basal_mass_flux_floating is missing; fallback to original runoff signal."
+                    fi
+                fi
                 ;;
 	*)
 		echo "Unknown PISM version=${VERSION_pism} specified, exiting..."
@@ -496,9 +525,17 @@ function generate_runoff_combine_fields {
                 #***************************************************************************
                 #LA include iceberg model
                 if [[ "x${fesom_use_iceberg}" == "x1" ]]; then
-                    ncrename -v runoff,total_ice_mass_loss_flux $ofile
+                    if ncdump -h "$ofile" 2>/dev/null | grep -q "residual_fw"; then
+                        ncrename -v residual_fw,total_ice_mass_loss_flux $ofile
+                    else
+                        ncrename -v runoff,total_ice_mass_loss_flux $ofile
+                    fi
                 else
-                    ncrename -v runoff,total_ice_mass_loss_flux $ofile
+                    if ncdump -h "$ofile" 2>/dev/null | grep -q "residual_fw"; then
+                        ncrename -v residual_fw,total_ice_mass_loss_flux $ofile
+                    else
+                        ncrename -v runoff,total_ice_mass_loss_flux $ofile
+                    fi
 		fi
                 ;;
     	esac

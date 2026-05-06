@@ -22,7 +22,9 @@ def prepare_environment(config):
         "DATA_DIR_echam": config["echam"]["experiment_outdata_dir"],
         "INIT_DIR_echam": config["echam"]["experiment_input_dir"],
         "WORK_DIR": config["general"]["thisrun_work_dir"],
-        "number_of_years_for_forcing": config["model1"]["chunk_size"],
+        "number_of_years_for_forcing": config["echam"].get(
+            "number_of_years_for_forcing", config["model1"]["chunk_size"]
+        ),
         "CHUNK_START_DATE_echam": config["general"]["chunk_start_date"],
         "CHUNK_END_DATE_echam": config["general"]["chunk_end_date"],
         "END_YEAR_echam": config["general"]["chunk_end_date"].syear,

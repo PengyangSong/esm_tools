@@ -125,7 +125,7 @@ function pism2ocean {
 
 
 function iterative_coupling_pism_ocean_write_names {
-    echo "Writing fesom1x input names and units for use with generic ocean_file_for_ice.nc"
+    echo "Writing FESOM ocean input name metadata"
     :> ice_names_for_ocean.dat
 
     #

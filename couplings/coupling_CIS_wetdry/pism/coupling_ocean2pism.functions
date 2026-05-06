@@ -16,13 +16,18 @@ function ocean2pism {
     GRIDDES_OCE=${GRIDDES_OCE:-ocean.griddes}
     PISM_OCEAN_FORCING_FILE=${COUPLE_DIR}/"ocean_forcing4pism_ver${VERSION_pism}.${INTERPOL_TYPE_OCE}.${CHUNK_DATE_TAG_pism}.nc"
 
-    OCEAN_3EQN_ICE_FORCE_PY_SCRIPT=${FUNCTION_PATH:-${FPATH}}/ocean_3eqn_ismforce.py
-
     PISM_OCEAN_SWITCH=""
     PISM_OCEAN_FILE_SWITCH=""
 
     iter_coup_regrid_method_oce2ice=${iter_coup_regrid_method_oce2ice:-EXTRAPOLATE}
     iter_coup_interact_method_oce2ice=${iter_coup_interact_method_oce2ice:-OCEANTEMPSALT}
+    PISM_FESOM_OCEAN_MODE=${PISM_FESOM_OCEAN_MODE:-temperature_salinity}
+    echo " *   FESOM→PISM ocean: PISM_FESOM_OCEAN_MODE=${PISM_FESOM_OCEAN_MODE}"
+
+    if [[ "x${PISM_FESOM_OCEAN_MODE}" == "xbasal_melt" ]]; then
+        echo " *   basal_melt mode -> forcing DIRECT ocean interaction (prescribed shelf flux)"
+        iter_coup_interact_method_oce2ice="DIRECT"
+    fi
 
     read_names ocean ice
     save_griddes ice
@@ -34,88 +39,44 @@ function ocean2pism {
     echo -e "   --> Interaction >>> ${GREEN}${iter_coup_interact_method_oce2ice}${NOCOLOR} <<< ocean (Step 1/2: names)"
     case $iter_coup_interact_method_oce2ice in
         "DIRECT")
-	    #
-	    # Take DIRECTly the forcing coming from the ocean model
-	    #
+	    # Prescribed cavity-interface shelf temperature and basal mass flux.
 	    PISM_OCEAN_SWITCH="-ocean given"
 	    PISM_OCEAN_FILE_SWITCH="-ocean_given_file ${PISM_OCEAN_FORCING_FILE}"
             iterative_coupling_ocean_pism_prepare_ocean_direct_forcing
             ;;
         "MIXED"|"TS_RESCALED2FLUX")
-	    #
-	    #  Take directly the forcing coming from the ocean model
-	    #  and rescale it with `ocean_3eqn_iceforce.py` computed
-	    #  fluxes -- NOT YET IMPLEMENTED
-	    #
-	    PISM_OCEAN_SWITCH="-ocean given"
-	    PISM_OCEAN_FILE_SWITCH="-ocean_given_file ${PISM_OCEAN_FORCING_FILE}"
-            iterative_coupling_ocean_pism_prepare_ocean_mixed_forcing
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
             ;;
 	"OCEANTEMP")
-	    #
-	    # Provide the ice sheet model (here PISM) the temperature
-	    # 3dim field (constant in time) and the PISM computes the
-	    # basal ice shelf conditions
-	    #
-	    PISM_OCEAN_SWITCH="-ocean o3d"
-	    PISM_OCEAN_FILE_SWITCH="-ocean_o3d_file ${PISM_OCEAN_FORCING_FILE}"
-            iterative_coupling_ocean_pism_prepare_ocean_temp_forcing
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
 	    ;;
 	"OCEANTEMPSALT")
-	    #
-	    # Provide the ice sheet model (here PISM) the temperature
-	    # and salinity 3dim fields (constant in time) and the PISM
-	    # computes the basal ice shelf conditions
-	    #
+	    # Build -ocean th forcing directly from cavity T/S.
 	    PISM_OCEAN_SWITCH="-ocean th"
 	    PISM_OCEAN_FILE_SWITCH="-ocean_th_file ${PISM_OCEAN_FORCING_FILE}"
             iterative_coupling_ocean_pism_prepare_ocean_tempsalt_forcing
 	    ;;
 	"PICO_OCEAN")
-	    #
-	    # Provide the ice sheet model temperature and salinity
-	    # fields and PISM computes via the "PICO" submodel the
-	    # ice shelf conditions
-	    #
-	    #PISM_OCEAN_SWITCH="-ocean pico -ocean.pico.continental_shelf_depth 700"
-            
+	    # PICO reuses the same cavity-interface T/S input and adds basins afterwards.
             PISM_OCEAN_SWITCH="-ocean pico"
 	    PISM_OCEAN_FILE_SWITCH="-ocean_pico_file ${PISM_OCEAN_FORCING_FILE}"
             PISM_OCEAN_PICO_BASINS_FILE=${PISM_OCEAN_PICO_BASINS_FILE:-${PISM_OCEAN_FORCING_FILE}}
-            echo " * Doing iterative_coupling_ocean_pism_prepare_ocean_tempsalt_forcing ..."
             iterative_coupling_ocean_pism_prepare_ocean_tempsalt_forcing 	
-            echo "      ...done."
-            
-            #echo " * Doing iterative_coupling_ocean_pism_prepare_pico_ocean_forcing ..."
-            #iterative_coupling_ocean_pism_prepare_pico_ocean_forcing ${PISM_OCEAN_PICO_BASINS_FILE} ${PISM_OCEAN_FORCING_FILE}
-            #echo "      ...done."
             ;;
 	"TEMP2FLUX")
-	    #
-	    # Use the python script `ocean_3eqn_iceforce.py` and
-	    # compute the basal temporal evolving conditions based
-	    # only on the 3dim oceanic temperature distribution
-	    #
-	    PISM_OCEAN_SWITCH="-ocean given"
-	    PISM_OCEAN_FILE_SWITCH="-ocean_given_file ${PISM_OCEAN_FORCING_FILE}"
-            iterative_coupling_ocean_pism_prepare_ocean_temp2flux_forcing
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
 	    ;;
 	"TEMPSALT2FLUX")
-	    #
-	    # Use the python script `ocean_3eqn_iceforce.py` and
-	    # compute the basal temporal evolving conditions based on
-	    # 3dim oceanic temperature and salinity distributions
-	    #
-	    PISM_OCEAN_SWITCH="-ocean given"
-	    PISM_OCEAN_FILE_SWITCH="-ocean_given_file ${PISM_OCEAN_FORCING_FILE}"
-            iterative_coupling_ocean_pism_prepare_ocean_tempsalt2flux_forcing
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
 	    ;;
         *)
             echo " UNKNOWN mass balance selected!"
-	    echo "   Known: DIRECT, MIXED, OCEANTEMP, PICO_OCEAN, TEMP2FLUX, TEMPSALT2FLUX"
+	    echo "   Known in wetdry cavity mode: DIRECT, OCEANTEMPSALT, PICO_OCEAN"
 	    echo " S T O P   1"
             exit 1
     esac
+
+    iterative_coupling_ocean_pism_report_basal_melt_signal "${PISM_OCEAN_FORCING_FILE}"
 
     echo "Grid method (ocean) : ${iter_coup_regrid_method_oce2ice}"
     echo -e "   --> Grid method >>> ${GREEN}${iter_coup_regrid_method_oce2ice}${NOCOLOR} <<< ocean"
@@ -130,7 +91,7 @@ function ocean2pism {
         "NONE")
 	    # Ocean and ice sheet grid are identical !!
 	    INTERPOL_TYPE_OCE=none
-    SM_OCEAN_FORCING_FILE3        iterative_coupling_ocean_pism_regrid_none
+            iterative_coupling_ocean_pism_regrid_none
             ;;
         *)
             echo " UNKNOWN regrid method selected!"
@@ -146,10 +107,10 @@ function ocean2pism {
             iterative_coupling_ocean_pism_compute_ocean_direct_forcing ${PISM_OCEAN_FORCING_FILE}
             ;;
         "MIXED"|"TS_RESCALED2FLUX")
-            iterative_coupling_ocean_pism_compute_ocean_mixed_forcing ${PISM_OCEAN_FORCING_FILE}
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
             ;;
 	"OCEANTEMP")
-            iterative_coupling_ocean_pism_compute_ocean_temp_forcing ${PISM_OCEAN_FORCING_FILE}
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
 	    ;;
 	"OCEANTEMPSALT")
             iterative_coupling_ocean_pism_compute_ocean_tempsalt_forcing ${PISM_OCEAN_FORCING_FILE}
@@ -162,24 +123,28 @@ function ocean2pism {
             echo "      ...done."
 	    ;;
 	"TEMP2FLUX")
-            iterative_coupling_ocean_pism_compute_ocean_temp2flux_forcing ${PISM_OCEAN_FORCING_FILE}
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
 	    ;;
 	"TEMPSALT2FLUX")
-            iterative_coupling_ocean_pism_compute_ocean_tempsalt2flux_forcing ${PISM_OCEAN_FORCING_FILE}
+            iterative_coupling_ocean_pism_unsupported_mode ${iter_coup_interact_method_oce2ice}
 	    ;;
         *)
             echo " UNKNOWN mass balance selected!"
-	    echo "   Known: DIRECT, MIXED, OCEANTEMP, TEMP2FLUX, TEMPSALT2FLUX"
+	    echo "   Known in wetdry cavity mode: DIRECT, OCEANTEMPSALT, PICO_OCEAN"
 	    echo " S T O P   3"
             exit 3
     esac
 
-    #iterative_coupling_ocean_pism_set_options
     iterative_coupling_ocean_pism_regrid_set_time_axis ${PISM_OCEAN_FORCING_FILE}
     iterative_coupling_pism_regrid_add_xy_array ${PISM_OCEAN_FORCING_FILE} "ocean"
 
     ln -sf "${COUPLE_DIR}/ocean_forcing4pism_ver${VERSION_pism}.${INTERPOL_TYPE_OCE}.${CHUNK_DATE_TAG_pism}.nc" "${COUPLE_DIR}/latest_ocean_forcing_file.nc"
-    
+
+    # Write esm_pism override lines (same tag as atmosphere2pism) so PISM uses -ocean given
+    # when DIRECT forcing is built; otherwise pism.yaml still selects -ocean th and PISM
+    # mis-reads the file (e.g. "input vertical grid has to be strictly increasing").
+    iterative_coupling_ocean_pism_set_options
+
     for file in ${cleanup_list} ; do test -f $file && rm $file ; done
     
     unset cleanup_list file
@@ -205,6 +170,48 @@ function ocean2pism {
     echo "     ...done."
 }
 
+function iterative_coupling_ocean_pism_unsupported_mode {
+    _mode=$1
+    echo " Unsupported wetdry ocean coupling mode: ${_mode}"
+    echo " This cleaned cavity-only workflow supports only:"
+    echo "   DIRECT / basal_melt      -> PISM -ocean given"
+    echo "   OCEANTEMPSALT / th       -> PISM -ocean th"
+    echo "   PICO_OCEAN               -> PICO using the same cavity T/S input"
+    echo " S T O P  16"
+    exit 16
+}
+
+function iterative_coupling_ocean_pism_report_basal_melt_signal {
+    _file=$1
+    _basename=$(basename "${_file}")
+    _target="${COUPLE_DIR}/${_basename}"
+    if [[ ! -f "${_target}" ]]; then
+        return 0
+    fi
+    if ! ncdump -h "${_target}" 2>/dev/null | grep -q "shelfbmassflux"; then
+        echo " *   Basal-melt diagnostics: shelfbmassflux not present in ${_target}"
+        return 0
+    fi
+    _sum=$(${cdo} -s output -fldsum -timmean -selname,shelfbmassflux "${_target}" 2>/dev/null | tr -d '[:space:]')
+    if [[ -n "${_sum}" ]]; then
+        echo " *   Basal-melt diagnostics (timmean fldsum shelfbmassflux): ${_sum}"
+    fi
+    ln -sf "${_target}" "${COUPLE_DIR}/latest_ocean_basal_melt_forcing_file.nc"
+}
+
+function iterative_coupling_ocean_pism_convert_shelfbmassflux_to_kgm2s {
+    _file=$1
+    if [[ ! -f "${_file}" ]]; then
+        return 0
+    fi
+    if ! ncdump -h "${_file}" 2>/dev/null | grep -q "shelfbmassflux"; then
+        return 0
+    fi
+    echo " *   Converting shelfbmassflux from m/s to kg m-2 s-1 (x1000): ${_file}"
+    ncap2 -O -s 'shelfbmassflux=shelfbmassflux*1000.0' "${_file}" "${_file}" || return 1
+    ncatted -O -a units,shelfbmassflux,o,c,"kg m-2 s-1" "${_file}" || return 1
+}
+
 function save_griddes {
     model_type=$1
     if [ ! -f ${COUPLE_DIR}/${model_type}.griddes ]; then
@@ -228,263 +235,42 @@ function save_griddes {
 # Compute actual forcing files : Convert variable names to pism names
 #
 function iterative_coupling_ocean_pism_prepare_ocean_direct_forcing {
-    echo "Preparing direct ocean forcing (${PISM_OCEAN_SWITCH:-Unknown}) file with sensible units..."
-    # PISM0.7 : shelfbtemp [degC], shelfbmassflux [kg m-2 s-1] 
-##    $cdo -select,name=wnet,Tsurf
-
-    # Rename all input variables
+    echo "Preparing cavity basal-melt forcing (${PISM_OCEAN_SWITCH:-Unknown})..."
     cdo_table_file=cdo_partable.txt
     iterative_coupling_ocean_pism_fesom2pism_names $cdo_table_file
-
-    # Extend the list: Delete not needed one
-    cat >> $cdo_table_file <<EOF
-&parameter
-name = theta_ocean
-delete = 1
-/
-&parameter
-name = shelfbheatflux
-delete = 1
-/
-&parameter
-name = shelfbsalt
-delete = 1
-/
-&parameter
-name = salinity_ocean
-delete = 1
-/
-&parameter
-name = z_base
-delete = 1
-/
-EOF
-
-#
-#    $cdo setpartabn,${cdo_table_file},convert \
-#	ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc \
-#	${PISM_OCEAN_FORCING_FILE}
-
     $cdo setpartabn,${cdo_table_file},convert \
 	${COUPLE_DIR}/ocean_file_for_ice.nc \
 	ocean_file_for_ice.pism_names.nc
+    $cdo -O selname,shelfbtemp,shelfbmassflux ocean_file_for_ice.pism_names.nc ocean_file_for_ice.pism_names.direct.nc
+    mv -f ocean_file_for_ice.pism_names.direct.nc ocean_file_for_ice.pism_names.nc
+    iterative_coupling_ocean_pism_convert_shelfbmassflux_to_kgm2s ocean_file_for_ice.pism_names.nc || return 1
+    # Collapse monthly cavity data to one annual-mean record for PISM -ocean given.
+    iterative_coupling_ocean_pism_fesom2pism_collapse_time ocean_file_for_ice.pism_names.nc
     
     echo "     ...done."
 }
 
-function iterative_coupling_ocean_pism_prepare_ocean_mixed_forcing {
-    echo " *   Preparing mixed ocean forcing (${PISM_OCEAN_SWITCH:-Unknown}) file with sensible units..."
-    # PISM0.7 : shelfbtemp [degC], shelfbmassflux [kg m-2 s-1]
-
-    # Rename all input variables
-    cdo_table_file=cdo_partable.txt
-    iterative_coupling_ocean_pism_fesom2pism_names $cdo_table_file
-
-#    # Extend the list: Delete not needed one
-#    cat >> $cdo_table_file <<EOF
-#&parameter
-#name = theta_ocean
-#delete = 1
-#/
-#
-#&parameter
-#name = shelfbheatflux
-#delete = 1
-#/
-#
-#&parameter
-#name = shelfbsalt
-#delete = 1
-#/
-#
-#&parameter
-#name = salinity_ocean
-#delete = 1
-#/
-#
-#&parameter
-#name = z_base
-#delete = 1
-#/
-#EOF
-
-    $cdo setpartabn,${cdo_table_file},convert \
-	${COUPLE_DIR}/ocean_file_for_ice.nc \
-	ocean_file_for_ice.pism_names.nc
-
-    echo "     ...done."
-}
-
-
-function iterative_coupling_ocean_pism_prepare_ocean_temp_forcing {
-    echo " *   Preparing ocean temperature-based forcing (${PISM_OCEAN_SWITCH:-Unknown}) file with sensible units..."
-    # PISM0.7 : theta_ocean_ref [degC]
-
-    # Rename all input variables
-    cdo_table_file=cdo_partable.txt
-    iterative_coupling_ocean_pism_fesom2pism_names $cdo_table_file
-
-    # Extend the list: Delete not needed one
-    cat >> $cdo_table_file <<EOF
-&parameter
-name = theta_ocean
-out_name = theta_ocean_ref
-/
-
-&parameter
-name = salinity_ocean
-delete = 1
-/
-&parameter
-name = shelfbheatflux
-delete = 1
-/
-&parameter
-name = shelfbmassflux
-delete = 1
-/
-&parameter
-name = shelfbsalt
-delete = 1
-/
-&parameter
-name = shelfbtemp
-delete = 1
-/
-&parameter
-name = z_base
-delete = 1
-/
-EOF
-
-    $cdo setpartabn,${cdo_table_file},convert \
-	${COUPLE_DIR}/ocean_file_for_ice.nc \
-	ocean_file_for_ice.pism_names.nc
-
-    # This method allows only one time step
-    iterative_coupling_ocean_pism_fesom2pism_collapse_time ocean_file_for_ice.pism_names.nc
-
-    echo "     ...done."
-}
-
-
 function iterative_coupling_ocean_pism_prepare_ocean_tempsalt_forcing {
-    echo " *   Preparing ocean temperature/salinity-based forcing (${PISM_OCEAN_SWITCH:-Unknown}) file with sensible units..."
-    # PISM0.7 : theta_ocean [Kelvin], salinity_ocean [g/kg]
-
-    # Rename all input variables
+    echo " *   Preparing cavity temperature/salinity forcing (${PISM_OCEAN_SWITCH:-Unknown})..."
     cdo_table_file=cdo_partable.txt
     iterative_coupling_ocean_pism_fesom2pism_names $cdo_table_file
-
-    # Extend the list: Delete not needed one
-
-    cat >> $cdo_table_file <<EOF
-&parameter
-name = shelfbheatflux
-delete = 1
-/
-&parameter
-name = shelfbmassflux
-delete = 1
-/
-&parameter
-name = shelfbsalt
-delete = 1
-/
-&parameter
-name = shelfbtemp
-delete = 1
-/
-&parameter
-name = z_base
-delete = 1
-/
-EOF
 
     $cdo setpartabn,${cdo_table_file},convert \
 	${COUPLE_DIR}/ocean_file_for_ice.nc \
 	ocean_file_for_ice.pism_names.nc
 
-    # This method allows only one time step
+    # Build -ocean th input from cavity-interface T/S.
+    _tmp_if_ts=ocean_file_for_ice.pism_names.interface_ts.nc
+    _tmp_if_ts_k=ocean_file_for_ice.pism_names.interface_ts.kelvin.nc
+    $cdo -s selname,shelfbtemp,Ssurf ocean_file_for_ice.pism_names.nc ${_tmp_if_ts}
+    $cdo -s chname,shelfbtemp,theta_ocean,Ssurf,salinity_ocean ${_tmp_if_ts} ${_tmp_if_ts_k}
+    ncap2 -O -s 'theta_ocean=theta_ocean+273.15' ${_tmp_if_ts_k} ${_tmp_if_ts_k} || return 1
+    ncatted -O -a units,theta_ocean,o,c,"K" -a units,salinity_ocean,o,c,"g kg-1" ${_tmp_if_ts_k} || return 1
+    mv -f ${_tmp_if_ts_k} ocean_file_for_ice.pism_names.nc
+    cleanup_list="${cleanup_list} $(pwd)/${_tmp_if_ts}"
+
+    # Collapse monthly cavity data to one annual-mean record for PISM -ocean th.
     iterative_coupling_ocean_pism_fesom2pism_collapse_time ocean_file_for_ice.pism_names.nc
-
-    echo "     ...done."
-}
-
-
-function iterative_coupling_ocean_pism_prepare_ocean_temp2flux_forcing {
-    echo " *   Preparing ocean temperature->flux forcing (${PISM_OCEAN_SWITCH:-Unknown}) file with sensible units..."
-    # PISM0.7 : shelfbtemp [degC], shelfbmassflux [kg m-2 s-1]
-    # Rename all input variables
-    cdo_table_file=cdo_partable.txt
-    iterative_coupling_ocean_pism_fesom2pism_names $cdo_table_file
-
-    # Extend the list: Delete not needed one
-    cat >> $cdo_table_file <<EOF
-&parameter
-name = salinity_ocean
-delete = 1
-/
-&parameter
-name = shelfbheatflux
-delete = 1
-/
-&parameter
-name = shelfbmassflux
-delete = 1
-/
-&parameter
-name = shelfbsalt
-delete = 1
-/
-&parameter
-name = shelfbtemp
-delete = 1
-/
-EOF
-
-    $cdo setpartabn,${cdo_table_file},convert \
-	${COUPLE_DIR}/ocean_file_for_ice.nc \
-	ocean_file_for_ice.pism_names.nc
-
-    echo "     ...done."
-}
-
-function iterative_coupling_ocean_pism_prepare_ocean_tempsalt2flux_forcing {
-    echo " *   Preparing ocean temperature+salt->flux forcing (${PISM_OCEAN_SWITCH:-Unknown}) file with sensible units..."
-    # PISM0.7 : shelfbtemp [degC], shelfbmassflux [kg m-2 s-1]
-
-    # Rename all input variables
-    cdo_table_file=cdo_partable.txt
-    iterative_coupling_ocean_pism_fesom2pism_names $cdo_table_file
-
-    # Extend the list: Delete not needed one
-    cat >> $cdo_table_file <<EOF
-&parameter
-name = shelfbheatflux
-delete = 1
-/
-&parameter
-name = shelfbmassflux
-delete = 1
-/
-&parameter
-name = shelfbsalt
-delete = 1
-/
-&parameter
-name = shelfbtemp
-delete = 1
-/
-&parameter
-name = z_base
-delete = 1
-/
-EOF
-
-    $cdo setpartabn,${cdo_table_file},convert \
-	${COUPLE_DIR}/ocean_file_for_ice.nc \
-	ocean_file_for_ice.pism_names.nc
 
     echo "     ...done."
 }
@@ -510,42 +296,16 @@ function iterative_coupling_ocean_pism_prepare_pico_ocean_forcing {
 function iterative_coupling_ocean_pism_fesom2pism_names {
     _file=$1
 
-    _oce_temp3D_varn="theta_ocean"
-    _oce_temp3D_unit="$(get_units4pism_version ${_oce_temp3D_varn} ${VERSION_pism})"
-    _oce_salt3D_varn="salinity_ocean"
-    _oce_salt3D_unit="$(get_units4pism_version ${_oce_salt3D_varn} ${VERSION_pism})"
     _oce_temp2D_varn="shelfbtemp"
     _oce_temp2D_unit="$(get_units4pism_version ${_oce_temp2D_varn} ${VERSION_pism})"
     _oce_salt2D_varn="Ssurf"
     _oce_salt2D_unit="g kg-1"
     _oce_massflux_varn="shelfbmassflux"
     _oce_massflux_unit="$(get_units4pism_version ${_oce_massflux_varn} ${VERSION_pism})"
-    _oce_heatflux_varn="shelfbheatflux"
-    _oce_heatflux_unit="W m-2 s-1"
 
-    # Maximal salinity of 474 g/kg : "Don Juan Pond", Antarctica
+    # CDO name table for wetdry: ocean_file_for_ice.nc carries only cavity-interface
+    # fields merged as Tsurf, Ssurf, fw (no legacy 3D temp/salt).
 cat > ${_file:-cdo_partable.txt} <<EOFcdo
-&parameter
-name = temp
-out_name = ${_oce_temp3D_varn}
-units = "${_oce_temp3D_unit}"
-long_name = "potential ocean temperature"
-standard_name = potential_ocean_temperature
-
-valid_min = -273
-valid_max = 373
-/
-
-&parameter
-name = salt
-out_name = ${_oce_salt3D_varn}
-units = "${_oce_salt3D_unit}"
-long_name = "ocean salinity"
-standard_name = ocean_salinity
-valid_min = 0
-valid_max = 474
-/
-
 &parameter
 name = Tsurf
 out_name = ${_oce_temp2D_varn}
@@ -574,28 +334,9 @@ long_name = "shelf basal mass flux"
 standard_name = shelf_basal_mass_flux
 /
 
-&parameter
-name = fh
-out_name = ${_oce_heatflux_varn}
-units = "${_oce_heatflux_unit}"
-long_name = "shelf basal heat flux"
-standard_name = shelf_basal_heat_flux
-/
-
-&parameter
-name = fld
-out_name = z_base
-units = "meter"
-long_name = "depth of basal ice shelf"
-valid_min = -10000
-valid_max = 10000
-/
-
 EOFcdo
 
-   unset _file
-   unset _oce_temp3D_unit _oce_salt3D_unit _oce_temp2D_unit _oce_salt2D_unit
-   unset _oce_massflux_unit _oce_heatflux_unit
+   unset _file _oce_temp2D_unit _oce_salt2D_unit _oce_massflux_unit
 }
 
 #
@@ -668,130 +409,53 @@ function iterative_coupling_ocean_pism_compute_ocean_direct_forcing {
     _action_string=": rename file"
     echo " *   Building direct ocean forcing (${PISM_OCEAN_SWITCH:-Unknown}) $_action_string -> $_file ..."
     mv -f ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc ${COUPLE_DIR}/$(basename ${_file})
-    echo "     ...done."
-}
-
-function iterative_coupling_ocean_pism_compute_ocean_mixed_forcing {
-    _file=$1
-    _action_string=": Rescale basal melt and temperature with temperature and salt to basal melt and temperature"
-    echo " *   Building mixed ocean forcing (${PISM_OCEAN_SWITCH:-Unknown}) $_action_string -> $_file ..."
-
-    echo -e "CCR: \033[41m NOT YET IMPLEMENTED (A) \033[0m"
-    echo " S T O P "; exit 1999
-    cp ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc ${COUPLE_DIR}/$(basename ${_file})
-
-
-    echo "     ...done."
-}
-
-
-function iterative_coupling_ocean_pism_compute_ocean_temp_forcing {
-    _file=$1
-    _action_string=": rename file"
-    echo " *   Building ocean temperature-based forcing (${PISM_OCEAN_SWITCH:-Unknown}) $_action_string -> $_file ..."
-    mv -f ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc ${COUPLE_DIR}/$(basename ${_file})
-    # Nothing to do, since ocean forcing is already in the right format
+    iterative_coupling_ocean_pism_sanitize_final_forcing ${COUPLE_DIR}/$(basename ${_file}) "DIRECT"
     echo "     ...done."
 }
 
 
 function iterative_coupling_ocean_pism_compute_ocean_tempsalt_forcing {
     _file=$1
-    if [ 0 -eq 1 ] ; then
-	_action_string=": vertical mean (150-600m) of temperature and salinity" ;
-	cdovert_flag="-sellevel,150/600"
+    _action_string=": use cavity-interface T/S directly"
+    echo " *   Building ocean T/S forcing (${PISM_OCEAN_SWITCH:-Unknown}) $_action_string -> $_file ..."
+    mv -f ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc ${COUPLE_DIR}/$(basename ${_file})
+    iterative_coupling_ocean_pism_sanitize_final_forcing ${COUPLE_DIR}/$(basename ${_file}) "TEMPSALT"
+
+    echo "     ...done."
+}
+
+function iterative_coupling_ocean_pism_sanitize_final_forcing {
+    _f=$1
+    _mode=${2:-DIRECT}
+    test_file_or_exit ${_f} 14
+
+    # PISM crashes with "Numeric conversion not representable" if huge sentinels
+    # survive remap/extrapolation. Mask non-physical outliers and fill them.
+    if [ "x${_mode}" == "xDIRECT" ]; then
+        if ncdump -h "${_f}" 2>/dev/null | grep -q "shelfbtemp"; then
+            ncap2 -O -s 'where(shelfbtemp<200.0 || shelfbtemp>350.0) shelfbtemp=shelfbtemp@_FillValue' "${_f}" "${_f}" || return 1
+            ncatted -O -a units,shelfbtemp,o,c,"K" "${_f}" || return 1
+        fi
+        if ncdump -h "${_f}" 2>/dev/null | grep -q "shelfbmassflux"; then
+            ncap2 -O -s 'where(shelfbmassflux<-1.e10 || shelfbmassflux>1.e10) shelfbmassflux=shelfbmassflux@_FillValue' "${_f}" "${_f}" || return 1
+            ncatted -O -a units,shelfbmassflux,o,c,"kg m-2 s-1" "${_f}" || return 1
+        fi
     else
-	_action_string=": vertical mean (index 1-20) of temperature and salinity"
-	cdovert_flag="-sellevidx,1/20"
+        if ncdump -h "${_f}" 2>/dev/null | grep -q "theta_ocean"; then
+            ncap2 -O -s 'where(theta_ocean<200.0 || theta_ocean>350.0) theta_ocean=theta_ocean@_FillValue' "${_f}" "${_f}" || return 1
+            ncatted -O -a units,theta_ocean,o,c,"K" "${_f}" || return 1
+        fi
+        if ncdump -h "${_f}" 2>/dev/null | grep -q "salinity_ocean"; then
+            ncap2 -O -s 'where(salinity_ocean<0.0 || salinity_ocean>60.0) salinity_ocean=salinity_ocean@_FillValue' "${_f}" "${_f}" || return 1
+            ncatted -O -a units,salinity_ocean,o,c,"g kg-1" "${_f}" || return 1
+        fi
     fi
-    echo " *   Building ocean temperature-based forcing (${PISM_OCEAN_SWITCH:-Unknown}) $_action_string -> $_file ..."
 
-    iterative_coupling_ocean_pism_fesom2pism_collapse_depth ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc ${COUPLE_DIR}/$(basename ${_file}) "${cdovert_flag}"
+    _tmp=${_f}.sanitize.$$
+    ${cdo} -s fillmiss2 "${_f}" "${_tmp}" 2>/dev/null || return 1
+    mv -f "${_tmp}" "${_f}"
 
-    echo "     ...done."
-}
-
-
-function iterative_coupling_ocean_pism_compute_ocean_temp2flux_forcing {
-    _file=$1
-    _action_string=": temperature to basal melt and temperature"
-    echo " *   Building ocean temperature->flux forcing (${PISM_OCEAN_SWITCH:-Unknown}) $_action_string -> $_file ..."
-
-    echo -e "CCR: \033[41m NOT YET IMPLEMENTED (B) \033[0m"
-    echo -e "CCR: \033[41m YOU may switch to NOT YET IMPLEMENTED 'TEMPSALT2FLUX' \033[0m"
-    echo " S T O P "; exit 2999
-
-    cp ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc ${COUPLE_DIR}/$(basename ${_file})
-
-    echo "     ...done."
-}
-
-function iterative_coupling_ocean_pism_compute_ocean_tempsalt2flux_forcing {
-    _file=$1
-    _action_string=": temperature+salt to basal melt and temperature ($(basename $OCEAN_3EQN_ICE_FORCE_PY_SCRIPT))"
-    echo " *   Building ocean temperature+salt->flux forcing (${PISM_OCEAN_SWITCH:-Unknown}) $_action_string -> $_file ..."
-
-
-    test_file_or_exit ${INPUT_FILE_pism} 14
-
-    case ${VERSION_pism:--0.1} in
-	"0.7")
-	    _upper_ice_temperature_varname="ice_surface_temp"
-	    ;;
-	"1.0"|"1.1")
-	    _upper_ice_temperature_varname="ice_surface_temp"
-	    ;;
-	*)
-	    echo "NOT DEFINED PISM version >${VERSION_pism}<"
-	    echo "Please adjust function >iterative_coupling_ocean_pism_compute_ocean_tempsalt2flux_forcing< in 'coupling_ocean2pism.functions'"
-	    echo " S T O P  15"
-	    exit 15
-	    ;;
-    esac
-
-    echo " ---------- starting $OCEAN_3EQN_ICE_FORCE_PY_SCRIPT -------------"
-    _out_fname=${COUPLE_DIR}/$(basename $_file )
-    _py_logging_file="hydrography2ism_ocean_forcing.log"
-    echo "==> python $OCEAN_3EQN_ICE_FORCE_PY_SCRIPT --OCEAN_INPUT_FILE ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc --ISM_INPUT_FILE ${INPUT_FILE_pism} --OCEAN_TEMP_VARIABLE $_oce_temp3D_varn --OCEAN_SALT_VARIABLE $_oce_salt3D_varn --ISM_ICE_TEMP_VARIABLE $_upper_ice_temperature_varname --ISM_GRID_HEIGHT 0 --ISM_GRID_LENGTH 0 --OUT_CALC_FRONTAL_MELT False --OUT_CALC_LESS_BASAL_LOW_CAVITY False --LOGGING_OUTPUT_FILE ${_py_logging_file} --OUTPUT_FILE ${_out_fname} --LOGGING_OUTPUT_LEVEL INFO"
-
-    echo "Python version:"
-    python --version
-
-    python $OCEAN_3EQN_ICE_FORCE_PY_SCRIPT \
-	--OCEAN_INPUT_FILE ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc \
-	--ISM_INPUT_FILE ${INPUT_FILE_pism}  \
-	--OCEAN_TEMP_VARIABLE $_oce_temp3D_varn \
-	--OCEAN_SALT_VARIABLE $_oce_salt3D_varn \
-	--ISM_ICE_TEMP_VARIABLE $_upper_ice_temperature_varname \
-	--ISM_GRID_HEIGHT 0 \
-	--ISM_GRID_LENGTH 0 \
-	--OUT_CALC_FRONTAL_MELT False \
-	--OUT_CALC_LESS_BASAL_LOW_CAVITY False \
-	--LOGGING_OUTPUT_FILE ${_py_logging_file} \
-	--OUTPUT_FILE ${_output_filename}
-# Standard
-#	--OUT_CALC_BASAL_MELT True \
-#	--OUT_CALC_BASAL_TEMP True \
-#	--OUT_CALC_FRONTAL_MELT False \
-#	--OUT_CALC_LESS_BASAL_LOW_CAVITY False \
-#
-# Plus frontal melting
-#	--OUT_CALC_FRONTAL_MELT True
-#	--OUT_CALC_MERGE_BASAL_FRONTAL_MELT True \
-
-    echo " ---------- returned from $OCEAN_3EQN_ICE_FORCE_PY_SCRIPT --------"
-    for MessageTag in WARNING ERROR CRITICAL ; do
-	_nummer=$(grep ${MessageTag} ${_py_logging_file} | wc -l)
-	if [ ${_nummer} -gt 0 ] ; then
-	    echo "** Found $_nummer ${MessageTag}(s)"
-	    grep ${MessageTag} ${_py_logging_file}
-	fi
-    done
-
-    test_file_or_exit ${_out_fname} 15
-
-    unset _upper_ice_temperature_varname _file _py_logging_file _nummer _out_fname
-    echo "     ...done."
+    unset _f _mode _tmp
 }
 
 #
@@ -799,17 +463,24 @@ function iterative_coupling_ocean_pism_compute_ocean_tempsalt2flux_forcing {
 #
 function iterative_coupling_ocean_pism_set_options {
     echo ""; echo " *   set PISM setting for ocean forcing"
-    pism_conf_file_list="${COUPLE_DIR}/pism_coupler_${CHUNK_DATE_TAG_pism}.dat ${COUPLE_DIR}/pism_forcing_${CHUNK_DATE_TAG_pism}.dat ${COUPLE_DIR}/pism_config_value_${CHUNK_DATE_TAG_pism}.dat"
+    # Match pism_coupler / pism_forcing tag used in coupling_atmosphere2pism.functions
+    _pism_chunk_tag="${CHUNK_START_DATE_pism}-${CHUNK_END_DATE_pism}"
+    if [ "x${_pism_chunk_tag}" == "x-" ]; then
+        _pism_chunk_tag="${CHUNK_DATE_TAG_pism}"
+    fi
+    pism_conf_file_list="${COUPLE_DIR}/pism_coupler_${_pism_chunk_tag}.dat ${COUPLE_DIR}/pism_forcing_${_pism_chunk_tag}.dat ${COUPLE_DIR}/pism_config_value_${_pism_chunk_tag}.dat"
     for pism_conf_file in $pism_conf_file_list; do
 	if [ ! -f $pism_conf_file ]; then
 	    :> $pism_conf_file
 	fi
     done
 
-    echo "$(pism_coupler_to_esm_runsscripts_syntax ${PISM_OCEAN_SWITCH[@]})" \
-	>> ${COUPLE_DIR}/pism_coupler_${CHUNK_DATE_TAG_pism}.dat
-    echo "$(pism_forcing_to_esm_runsscripts_syntax ${PISM_OCEAN_FILE_SWITCH[@]})" \
-	>> ${COUPLE_DIR}/pism_forcing_${CHUNK_DATE_TAG_pism}.dat
+    echo "$(pism_coupler_to_esm_runsscripts_syntax $PISM_OCEAN_SWITCH)" \
+	>> ${COUPLE_DIR}/pism_coupler_${_pism_chunk_tag}.dat
+    # Two words: -ocean_*_file <path> (word-split; path must not contain spaces)
+    echo "$(pism_forcing_to_esm_runsscripts_syntax $PISM_OCEAN_FILE_SWITCH)" \
+	>> ${COUPLE_DIR}/pism_forcing_${_pism_chunk_tag}.dat
+    unset _pism_chunk_tag
 }
 
 function iterative_coupling_ocean_pism_regrid_set_time_axis {
@@ -849,10 +520,6 @@ function iterative_coupling_ocean_pism_regrid_set_time_axis {
 }
 
 function iterative_coupling_ocean_pism_fesom2pism_collapse_time {
-    # NOTE: Could be called at any time (also before regridding and
-    # reshuffling data with pyfesom script), because the time axis is
-    # well defined regardless of representation of ocean data as a
-    # array or 3dim field.
     _file_time=$1
     echo ""; echo " *   collapse time axis/dimension of >>${_file_time}<<"
 
@@ -873,54 +540,6 @@ function iterative_coupling_ocean_pism_fesom2pism_collapse_time {
     cleanup_list="${cleanup_list} $(pwd)/${_tmp_file}"
 
     unset _file_time _tmp_file
-}
-
-
-function iterative_coupling_ocean_pism_fesom2pism_collapse_depth {
-    # NOTE: Could be called ONLY AFTER reshuffling data with pyfesom
-    # script, because the depth axis is not established before.
-    #
-    # Example:
-    # iterative_coupling_ocean_pism_fesom2pism_collapse_depth ocean_file_at_ice.${INTERPOL_TYPE_OCE}.nc ${COUPLE_DIR}/$(basename ${_file}) "-sellevel,150/600"
-    #
-    _file_input=$1
-    echo ""; echo " *   collapse depth axis/dimension of >>${_file_input}<<"
-    test_file_or_exit ${_file_input:?Missing file name to collapse depth dimension} 13
-
-    if [ $# -ge 2 ] ; then
-	_file_output=$2
-    else
-	# Swap input / output, because  input and output file name are identical
-	_file_output=${_file_input}
-	_file_input=${_file_input}_before_vertmean.nc
-	mv -f ${_file_output} ${_file_input}
-    fi
-    if [ $# -ge 3 ] ; then
-	_cdovert_sel_flag=$3
-    else
-	#_cdovert_sel_flag="-sellevel,150/600"
-	_cdovert_sel_flag="-sellevidx,1/20"
-    fi
-
-    #--> This depth is not recognized since depth(level)
-    # level is the vertical dimension
-    ##
-    ## Ensure depth axis is present by adding the
-    ## corresponding file array/axis
-    ##
-    #_file_depth=${FileName_depth4levels_FESOM:-fesom_depth_axis.nc}
-    #if [ -f ${_file_depth} ] ; then
-    #	echo "     - adding depth array from >>${_file_depth}<<"
-    #	ncks -A ${_file_depth} ${_file_input}
-    #fi
-
-    echo "     - collapse type ${_cdovert_sel_flag} -> $(basename ${_file_output})"
-    $cdo -vertmean ${_cdovert_sel_flag} ${_file_input} ${_file_output}
-    echo "       ^ Note: Warnings about missing levels are commonly OK"
-
-    cleanup_list="${cleanup_list} $(pwd)/${_file_input}"
-
-    unset _cdovert_sel_flag _file_depth _file_input
 }
 
 # -- last line

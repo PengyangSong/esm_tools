@@ -1,15 +1,32 @@
 """
-FESOM env for awiesm-pism-vilma CIS when script_dir is couplings/coupling_CIS/fesom.
+FESOM environment for the wetdry coupling package.
 
-Wetdry: ICE_TO_FESOM forced on, FESOM_PREP_ICEBERG_DISCHARGE, awicm chunk tags,
-RESTART_DIR_fesom for ice→ocean restart handling.
-
-Per-chunk wetdry paths use WETDRY_CHUNK_TAG (YYYYMMDD-YYYYMMDD) so max/submesh dirs are
-not overwritten between iterative chunks. Override WETDRY_MAXMESH_DIR / WETDRY_SUBMESH_DIR
-in the runscript if needed.
+Wetdry uses chunk-tagged work directories for restart remapping and submesh handling.
+The ocean -> PISM path is cavity-interface only: ``cavity_Tsurf``, ``cavity_Ssurf``,
+and ``cavity_Bmelt`` are remapped and passed onward by ``coupling_fesom2ice.functions``.
 """
 
+import importlib.util
 import os
+
+_wetdry_pism_env_bridge = None
+
+
+def _wetdry_pism_fesom_ocean_mode(config):
+    """Match ``pism.fesom_to_pism_ocean`` / legacy flags (same rules as ``pism/env_pism.py``)."""
+    global _wetdry_pism_env_bridge
+    if _wetdry_pism_env_bridge is None:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _path = os.path.normpath(os.path.join(_here, "..", "pism", "env_pism.py"))
+        _spec = importlib.util.spec_from_file_location(
+            "_wetdry_bridge_pism_env", _path
+        )
+        _wetdry_pism_env_bridge = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_wetdry_pism_env_bridge)
+    # Match ``coupling_CIS_wetdry/pism/env_pism.prepare_environment``
+    setup_name = config["general"]["setup_name"]
+    pism = config.get("pism", config.get(setup_name, {}))
+    return _wetdry_pism_env_bridge._resolve_fesom_to_pism_ocean_mode(pism)
 
 
 def _wetdry_chunk_tag(general):
@@ -148,7 +165,9 @@ def prepare_environment(config):
         "MESH_ROTATED_fesom": config["fesom"]["mesh_rotated"],
         "DATA_DIR_fesom": config["fesom"]["experiment_outdata_dir"],
         "COUPLE_DIR": general["experiment_couple_dir"],
-        "number_of_years_for_forcing": config["model1"]["chunk_size"],
+        "number_of_years_for_forcing": config["fesom"].get(
+            "number_of_years_for_forcing", config["model1"]["chunk_size"]
+        ),
         "CHUNK_SIZE_pism_standalone": config["model2"]["chunk_size"],
         "CHUNK_START_DATE_fesom": general["chunk_start_date"],
         "CHUNK_END_DATE_fesom": general["chunk_end_date"],

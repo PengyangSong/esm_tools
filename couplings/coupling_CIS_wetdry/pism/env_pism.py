@@ -1,8 +1,20 @@
 """
-PISM workflow environment for couplings/coupling_CIS/pism (CIS couple_in / couple_out).
+PISM workflow environment for the wetdry coupling package.
 
-Wetdry: PISM_TO_OCEAN=1; latest_ex_file_pism from outdata_targets or fallback under
-experiment_outdata_dir (for pism2ocean).
+Wetdry ocean forcing is cavity-interface only:
+
+- ``temperature_salinity`` -> FESOM ``cavity_Tsurf`` / ``cavity_Ssurf`` become
+  PISM ``theta_ocean`` / ``salinity_ocean`` for ``-ocean th``.
+- ``basal_melt`` -> FESOM ``cavity_Tsurf`` / ``cavity_Bmelt`` become
+  PISM ``shelfbtemp`` / ``shelfbmassflux`` for ``-ocean given``.
+
+The runscript switch is ``pism.fesom_to_pism_ocean``. Aliases:
+``ts``, ``tempsalt``, ``th`` -> ``temperature_salinity``;
+``given``, ``direct``, ``basal_melt_rate`` -> ``basal_melt``.
+
+If the explicit switch is omitted, the legacy boolean pair
+``use_basal_melt_from_fesom`` / ``keep_ts_coupling`` is still accepted and
+mapped to one of the two supported modes.
 """
 
 import os
@@ -32,11 +44,82 @@ def _cfg_float(val, default=0.0):
         raise
 
 
+_FESOM_OCEAN_CANONICAL = frozenset({"temperature_salinity", "basal_melt"})
+_FESOM_OCEAN_ALIASES = {
+    "ts": "temperature_salinity",
+    "tempsalt": "temperature_salinity",
+    "tempsalt_only": "temperature_salinity",
+    "th": "temperature_salinity",
+    "ocean_th": "temperature_salinity",
+    "basal": "basal_melt",
+    "basal_melt_only": "basal_melt",
+    "basal_melt_rate": "basal_melt",
+    "shelfbmassflux": "basal_melt",
+    "given": "basal_melt",
+    "direct": "basal_melt",
+}
+_REMOVED_FESOM_MODES = frozenset(
+    {
+        "temperature_salinity_and_basal_melt",
+        "parallel",
+        "transition",
+        "ts_and_basal_melt",
+        "ts_basal",
+    }
+)
+
+
+def _cfg_str_strip(val, default=""):
+    """String config value (incl. *WithProvenance), stripped; None → default."""
+    if val is None:
+        return default
+    if hasattr(val, "value"):
+        val = val.value
+    return str(val).strip()
+
+
+def _resolve_fesom_to_pism_ocean_mode(pism):
+    """Resolve ``pism.fesom_to_pism_ocean`` or legacy boolean pair."""
+    raw = _cfg_str_strip(pism.get("fesom_to_pism_ocean"), "")
+    if raw:
+        key = raw.lower().replace("-", "_")
+        key = _FESOM_OCEAN_ALIASES.get(key, key)
+        if key in _REMOVED_FESOM_MODES:
+            raise ValueError(
+                f"pism.fesom_to_pism_ocean={raw!r} is no longer supported. "
+                "Use 'temperature_salinity' (T/S only, original behaviour) or "
+                "'basal_melt' (prescribed shelf flux only)."
+            )
+        if key not in _FESOM_OCEAN_CANONICAL:
+            allowed = ", ".join(sorted(_FESOM_OCEAN_CANONICAL))
+            raise ValueError(
+                f"pism.fesom_to_pism_ocean must be one of: {allowed} (got {raw!r}). "
+                "See module docstring in env_pism.py for aliases."
+            )
+        return key
+    use_b = _cfg_int(pism.get("use_basal_melt_from_fesom"), 0)
+    keep_ts = _cfg_int(pism.get("keep_ts_coupling"), 1)
+    if use_b and not keep_ts:
+        return "basal_melt"
+    # (1, 1) or anything else → original T/S-only path (no basal column from FESOM)
+    return "temperature_salinity"
+
+
+def _fesom_ocean_mode_to_legacy_flags(mode):
+    """Keep legacy shell flags synchronized with the canonical wetdry mode."""
+    if mode == "basal_melt":
+        return 1, 0
+    return 0, 1
+
+
 def prepare_environment(config):
     setup_name = config["general"]["setup_name"]
     pism = config.get("pism", config.get(setup_name, {}))
     general = config["general"]
     default_input_grid = general["experiment_couple_dir"] + "/ice.griddes"
+
+    _fesom_ocean_mode = _resolve_fesom_to_pism_ocean_mode(pism)
+    _use_basal_from_fesom, _keep_ts = _fesom_ocean_mode_to_legacy_flags(_fesom_ocean_mode)
 
     environment_dict = {
         "PISM_TO_SOLID_EARTH": _cfg_int(pism.get("coupled_to_solidearth"), 1),
@@ -77,6 +160,16 @@ def prepare_environment(config):
         "TEMP2_BIAS_FILE": pism.get("temp2_bias_file", ""),
         "DOWNSCALING_LAPSE_RATE": pism.get("lapse_rate", -0.005),
         "DOWNSCALE_PRECIP": pism.get("downscale_precip", 1),
+        # FESOM -> PISM ocean: one canonical mode plus legacy compatibility flags.
+        "PISM_FESOM_OCEAN_MODE": _fesom_ocean_mode,
+        "PISM_USE_BASAL_MELT_FROM_FESOM": _use_basal_from_fesom,
+        "PISM_KEEP_TS_COUPLING": _keep_ts,
+        "PISM_RESIDUAL_FW_TO_OCEAN": _cfg_int(
+            pism.get("residual_fw_to_ocean"), 0
+        ),
+        "PISM_RESIDUAL_FW_NEG_TOL": _cfg_float(
+            pism.get("residual_fw_negative_tolerance"), 1.0e-14
+        ),
     }
     version = pism.get("version", "1.2")
     environment_dict["VERSION_pism"] = version.replace("github", "").replace("index", "").replace("snowflake", "")[:3]

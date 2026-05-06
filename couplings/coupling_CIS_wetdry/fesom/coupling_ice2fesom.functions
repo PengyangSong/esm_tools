@@ -102,7 +102,7 @@ function ice2fesom {
         return 0
     fi
 
-    iterative_coupling_ice_fesom1x_write_names
+    iterative_coupling_ice_fesom_ocean_names
 
     read_names ice fesom
     save_griddes ocean
@@ -274,7 +274,7 @@ function iterative_coupling_ice_fesom_wetdry_submesh_cutting {
           cp "${wutils}/submesh_cutting_settings/priority_nodes.txt" ./priority_nodes.txt || exit 1
       else
           echo "ERROR: relax150614.x needs priority_nodes.txt in submesh cwd — set WETDRY_PRIORITY_NODES to your file"
-          echo "       (e.g. export WETDRY_PRIORITY_NODES=/path/to/priority_nodes.PI.txt) or add"
+          echo "       (e.g. export WETDRY_PRIORITY_NODES=/path/to/priority_nodes.PISM.txt) or add"
           echo "       ${wutils}/submesh_cutting_settings/priority_nodes.txt to the repo."
           exit 1
       fi
@@ -506,7 +506,7 @@ function iterative_coupling_ice_fesom_generate_submesh {
     export WETDRY_MAXMESH_DIR="${WETDRY_MAXMESH_DIR:-${COUPLE_DIR}/fesom_wetdry_maxmesh${_wdsuf}}"
     export WETDRY_SUBMESH_DIR="${WETDRY_SUBMESH_DIR:-${COUPLE_DIR}/fesom_wetdry_submesh${_wdsuf}}"
     export WETDRY_FESOM_INI=/albedo/home/psong/codes/fesom2/bin/fesom_ini.x
-    export WETDRY_PRIORITY_NODES=/albedo/home/psong/LGM_cavity/my_input/priority_nodes.PI.txt
+    export WETDRY_PRIORITY_NODES=/albedo/home/psong/LGM_cavity/my_input/priority_nodes.PISM.txt
     export RSCRIPT=/albedo/soft/sw/R/4.2.2/bin/Rscript
 
     iterative_coupling_ice_fesom_wetdry_submesh_cutting
@@ -675,8 +675,8 @@ split_FESOM2_restart(
 
 
 
-function iterative_coupling_ice_fesom1x_write_names {
-    echo "Writing fesom1x input names and units for use with generic ocean_file_for_ice.nc"
+function iterative_coupling_ice_fesom_ocean_names {
+    echo "Writing FESOM ocean input name metadata (ice → ocean regrid)"
     :> ice_names_for_fesom.dat
 
     #
