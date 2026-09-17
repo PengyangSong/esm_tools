@@ -1,6 +1,7 @@
 #!/usr/bin/env Rscript
 # NetCDF mesh description for FESOM (from gen_wetdry_v2).
-# TODO: remove hard-coded lib.loc; align with gen_wetdry_v2/Step4_fesom_ini/gen_mesh_cst.R / site config.
+# The runtime selects the R library through R_LIBS_USER/R_LIBS_SITE.  Do not
+# embed a developer-specific library path here.
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 1) {
   stop("Usage: gen_mesh_cst.R <mesh_dir>")
@@ -8,8 +9,8 @@ if (length(args) < 1) {
 meshpath <- args[1]
 ofile <- paste0(meshpath, "/mesh_cst.nc", sep = "")
 
-library(spheRlab, lib.loc = "/albedo/home/psong/R/x86_64-conda-linux-gnu-library/4.2")
-library(ncdf4, lib.loc = "/albedo/home/psong/R/x86_64-conda-linux-gnu-library/4.2")
+library(spheRlab)
+library(ncdf4)
 
 rotated <- FALSE
 if (rotated) {

@@ -1,5 +1,14 @@
 #!/usr/bin/ksh
 
+cis_wetdry_python() {
+    typeset _py="${WETDRY_PYTHON:-${PYTHON:-python3}}"
+    if [[ -n "${WETDRY_PRIVATE_LD_LIBRARY_PATH:-}" ]]; then
+        env PYTHONNOUSERSITE=1 LD_LIBRARY_PATH="${WETDRY_PRIVATE_LD_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" "${_py}" "$@"
+    else
+        env PYTHONNOUSERSITE=1 "${_py}" "$@"
+    fi
+}
+
 #
 # Wetdry FESOM → ice-sheet ocean boundary file.
 #
@@ -39,11 +48,6 @@ function fesom_ice_prepare_ocean_for_pism {
     fesom_ice_concatenate_files
 
     cp $(pwd)/ocean_file_for_ice.nc ${COUPLE_DIR}/ocean_file_for_ice.nc
-
-    if [ "${MACHINE}" == "albedo" ]; then
-        module unload python
-        module load python
-    fi
 
     echo "     ...done."
 }
@@ -102,10 +106,14 @@ function fesom_ice_construct_input_list {
 }
 
 function fesom_ice_remap_cavity_lonlat {
-    if [ "${MACHINE}" == "levante" ]; then
-        module load python3
+    typeset pyexe="${WETDRY_PYTHON:-python3}"
+    if ! command -v "${pyexe}" >/dev/null 2>&1 && [[ -x "${pyexe}" ]]; then
+        :
+    elif ! command -v "${pyexe}" >/dev/null 2>&1; then
+        echo "ERROR: Python executable not found: ${pyexe}"
+        return 1
     fi
-    echo ""; echo " *   cavity fields → lon/lat (python $(python --version 2>&1))"
+    echo ""; echo " *   cavity fields → lon/lat (${pyexe} $(${pyexe} --version 2>&1))"
 
     pyfesom_script=${FUNCTION_PATH:-${FPATH}}/../utils/fesom_scalar_array_to_LonLat.py
     if [ ! -f $pyfesom_script ] ; then
@@ -122,11 +130,6 @@ function fesom_ice_remap_cavity_lonlat {
         fi
     done
 
-    if [ "${MACHINE}" == "albedo" ]; then
-        module unload python
-        module load python/3.9.12
-    fi
-
     processed_fesom_ice_Tsurf=""
     processed_fesom_ice_Ssurf=""
     processed_fesom_ice_fw=""
@@ -135,7 +138,7 @@ function fesom_ice_remap_cavity_lonlat {
     out_T=ocean_ice_Tsurf_lonlat_${start_year_couple}_${end_year_couple}.nc
     log_T=${out_T%.nc}.log
     echo -n "     - Tsurf (cavity_Tsurf) → ${out_T}"
-    python $pyfesom_script ${FESOM_MESH_SWITCHES} \
+    cis_wetdry_python $pyfesom_script ${FESOM_MESH_SWITCHES} \
         --FESOM_PATH "${DATA_DIR_fesom}/" \
         --FESOM_VARIABLE cavity_Tsurf \
         --FESOM_MESH ${MESH_DIR_fesom} \
@@ -153,7 +156,7 @@ function fesom_ice_remap_cavity_lonlat {
     out_S=ocean_ice_Ssurf_lonlat_${start_year_couple}_${end_year_couple}.nc
     log_S=${out_S%.nc}.log
     echo -n "     - Ssurf (cavity_Ssurf) → ${out_S}"
-    python $pyfesom_script ${FESOM_MESH_SWITCHES} \
+    cis_wetdry_python $pyfesom_script ${FESOM_MESH_SWITCHES} \
         --FESOM_PATH "${DATA_DIR_fesom}/" \
         --FESOM_VARIABLE cavity_Ssurf \
         --FESOM_MESH ${MESH_DIR_fesom} \
@@ -192,7 +195,7 @@ function fesom_ice_remap_cavity_lonlat {
         _fesom_path_for_fw="${_fw_tmp_dir}/"
     fi
     echo -n "     - fw (cavity_Bmelt) → ${out_fw}"
-    python $pyfesom_script ${FESOM_MESH_SWITCHES} \
+    cis_wetdry_python $pyfesom_script ${FESOM_MESH_SWITCHES} \
         --FESOM_PATH "${_fesom_path_for_fw}" \
         --FESOM_VARIABLE cavity_Bmelt \
         --FESOM_MESH ${MESH_DIR_fesom} \

@@ -1,5 +1,17 @@
 #!/usr/bin/ksh
 
+# Keep optional CIS Python utilities isolated from the model's module stack.
+cis_wetdry_python() {
+        typeset _py="${WETDRY_PYTHON:-${PYTHON:-python3}}"
+        if [[ -n "${WETDRY_PRIVATE_LD_LIBRARY_PATH:-}" ]]; then
+                env PYTHONNOUSERSITE=1 \
+                    LD_LIBRARY_PATH="${WETDRY_PRIVATE_LD_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+                    "${_py}" "$@"
+        else
+                env PYTHONNOUSERSITE=1 "${_py}" "$@"
+        fi
+}
+
 ## @fn ice2echam() 
 ice2echam() {
         echo "                =================================================================="
@@ -1280,22 +1292,12 @@ distribute_total_discharge_over_ocean() {
 #        cdo -s fldsum -mul ${ifile1} ${ifile2} ${ofile}
         CELL_AREA_FESOM_FILE=${CELL_AREA_FESOM_FILE:-"fesom.mesh.diag.nc"}
         echo; echo "            * Start apply_hosing_correction.py with: $ifile1 $ifile2 ${MESH_PATH_FESOM}/${CELL_AREA_FESOM_FILE} ${HOSING_FILE_LANDICE_LOSS} "
-        if [ "$MACHINE" == "albedo" ]; then
-            module load python
-        else
-            module load python3
-        fi
         echo " * HOSING_FILE_LANDICE_LOSS = ${HOSING_FILE_LANDICE_LOSS}"
         if [ -f "${HOSING_FILE_LANDICE_LOSS}/landice_yearly_mass_loss.out" ]; then
             rm ${HOSING_FILE_LANDICE_LOSS}/landice_yearly_mass_loss.out
         fi
 
-        python ${FUNCTION_PATH}/../utils/apply_hosing_correction.py "$ifile1" "$ifile2" "${MESH_PATH_FESOM}/${CELL_AREA_FESOM_FILE}" "${HOSING_FILE_LANDICE_LOSS}"
-        if [ "$MACHINE" == "albedo" ]; then
-            module unload python
-        else
-            module unload python3
-        fi
+        cis_wetdry_python ${FUNCTION_PATH}/../utils/apply_hosing_correction.py "$ifile1" "$ifile2" "${MESH_PATH_FESOM}/${CELL_AREA_FESOM_FILE}" "${HOSING_FILE_LANDICE_LOSS}"
         echo; echo "            * Finished apply_hosing_correction.py "
 #
 #        
@@ -1392,7 +1394,7 @@ set_in_jsbach_restart_file() {
         echo "                           in: $SOURCE_FILENAME"
         if [ ! -z $unpack ]; then
                 echo "                -   with unpacking from landpoint grid to latlon grid"
-                python ${FUNCTION_PATH}/../utils/unpack_jsbach.py $TARGET_VARNAME $RESTART_FILE 
+                cis_wetdry_python ${FUNCTION_PATH}/../utils/unpack_jsbach.py $TARGET_VARNAME $RESTART_FILE
                 ################################################################################ 
                 # $ cdo -h replace
                 # NAME
@@ -1412,7 +1414,7 @@ set_in_jsbach_restart_file() {
                         ${TARGET_VARNAME}_lonlat_grid_replaced.nc
                 echo "                -   and repacking from latlon grid to landpoint grid"
                 # FIXME: The next line is probably wrong, or incomplete.
-                python ${FUNCTION_PATH}/../utils/pack_jsbach.py ${TARGET_VARNAME} ${TARGET_VARNAME}_lonlat_grid_replaced.nc ${RESTART_FILE}
+                cis_wetdry_python ${FUNCTION_PATH}/../utils/pack_jsbach.py ${TARGET_VARNAME} ${TARGET_VARNAME}_lonlat_grid_replaced.nc ${RESTART_FILE}
         else
                cdo -s replace \
                         ${RESTART_FILE} \

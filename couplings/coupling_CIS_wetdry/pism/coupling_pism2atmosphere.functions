@@ -347,7 +347,9 @@ function generate_orography_anomaly_over_pism_run {
                 $ifile2 \
                 $ofile 2>> ${COUPLE_DIR}/cdo_stderr_pism2atm
 
-        ncks -O -x -v time,GEOSP $ofile tmp.nc 2>> ${COUPLE_DIR}/cdo_stderr_pism2atm
+        # NCO >=5 requires -C when excluding a coordinate variable such as
+        # time; without it the orography anomaly is never produced.
+        ncks -O -C -x -v time,GEOSP $ofile tmp.nc 2>> ${COUPLE_DIR}/cdo_stderr_pism2atm
         mv tmp.nc $ofile
 }
 

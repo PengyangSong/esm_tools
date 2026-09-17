@@ -1,6 +1,10 @@
 #!/usr/bin/ksh
 
-module load nco
+# Prefer the runtime-provided NCO (or a site installation already on PATH).
+# Loading a module here can replace libraries selected by the model.
+if ! command -v ncks >/dev/null 2>&1; then
+    module load nco 2>/dev/null || true
+fi
 . ${FUNCTION_PATH}/../general/general_lists.functions
 
 cdo=cdo

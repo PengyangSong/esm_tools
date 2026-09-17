@@ -72,9 +72,24 @@ def prepare_environment(config):
         > MESH_DIR_fesom (fallback)
     """
     general = config["general"]
+    fesom = config["fesom"]
+
+    # A user may install the complete CIS toolchain below one private root
+    # (for example with the sandbox bootstrap script).  Individual paths can
+    # still override these conventions when a site provides them separately.
+    # Permit a shared, pre-sourced runtime.env to provide the defaults.  Explicit
+    # runscript values still take precedence over the process environment.
+    runtime_root = str(
+        fesom.get("wetdry_runtime_root", "")
+        or os.environ.get("WETDRY_RUNTIME_ROOT", "")
+        or ""
+    ).rstrip("/")
+    runtime_bin = f"{runtime_root}/meshtools_triangle/bin" if runtime_root else ""
+    runtime_fesom_ini = f"{runtime_root}/bin/fesom_ini.x" if runtime_root else ""
+    runtime_r_library = f"{runtime_root}/libs" if runtime_root else ""
     couple_dir = general["experiment_couple_dir"].rstrip("/")
     chunk_tag = _wetdry_chunk_tag(general)
-    configured_mesh_dir = config["fesom"]["mesh_dir"]
+    configured_mesh_dir = fesom["mesh_dir"]
     active_submesh_dir = f"{couple_dir}/fesom_wetdry_submesh_active"
     active_submesh_nod2d = f"{active_submesh_dir}/nod2d.out"
     mesh_state_file = f"{couple_dir}/wetdry_last_mesh_dir.txt"
@@ -142,7 +157,7 @@ def prepare_environment(config):
         active_mesh_dir_real or configured_mesh_dir_real or os.path.realpath(configured_mesh_dir)
     )
     # Optional explicit remap source from runscript. If unset, use previous-state mesh.
-    configured_last_mesh = config["fesom"].get("wetdry_last_mesh_dir", "")
+    configured_last_mesh = fesom.get("wetdry_last_mesh_dir", "")
     if configured_last_mesh:
         last_mesh_for_remap = _mesh_real_if_valid(configured_last_mesh) or os.path.realpath(
             configured_last_mesh
@@ -156,16 +171,16 @@ def prepare_environment(config):
     environment_dict = {
         "ICE_TO_FESOM": 1,
         "FESOM_PREP_ICEBERG_DISCHARGE": int(
-            config["fesom"].get("use_icebergs", False).__bool__()
+            fesom.get("use_icebergs", False).__bool__()
         ),
         "FESOM_TO_ICE": int(general["first_run_in_chunk"]),
         # Coupling scripts should work on physical paths (no symlink ambiguity).
         # FESOM namelist MeshPath remains controlled by runscript YAML (fesom.mesh_dir).
         "MESH_DIR_fesom": mesh_dir_for_chunk,
-        "MESH_ROTATED_fesom": config["fesom"]["mesh_rotated"],
-        "DATA_DIR_fesom": config["fesom"]["experiment_outdata_dir"],
+        "MESH_ROTATED_fesom": fesom["mesh_rotated"],
+        "DATA_DIR_fesom": fesom["experiment_outdata_dir"],
         "COUPLE_DIR": general["experiment_couple_dir"],
-        "number_of_years_for_forcing": config["fesom"].get(
+        "number_of_years_for_forcing": fesom.get(
             "number_of_years_for_forcing", config["model1"]["chunk_size"]
         ),
         "CHUNK_SIZE_pism_standalone": config["model2"]["chunk_size"],
@@ -173,12 +188,35 @@ def prepare_environment(config):
         "CHUNK_END_DATE_fesom": general["chunk_end_date"],
         "CHUNK_START_DATE_awicm": general["chunk_start_date"],
         "CHUNK_END_DATE_awicm": general["chunk_end_date"],
-        "PYFESOM_PATH": "/pf/a/a270124/pyfesom2/",
+        # Optional per-user CIS runtime.  The shell coupling code consumes
+        # these values instead of assuming the original developer's paths.
+        "WETDRY_RUNTIME_ROOT": runtime_root,
+        "WETDRY_MESHTOOLS_BIN": fesom.get("wetdry_meshtools_bin", "")
+        or os.environ.get("WETDRY_MESHTOOLS_BIN", "")
+        or runtime_bin,
+        "WETDRY_FESOM_INI": fesom.get("wetdry_fesom_ini", "")
+        or os.environ.get("WETDRY_FESOM_INI", "")
+        or runtime_fesom_ini,
+        "WETDRY_PRIORITY_NODES": fesom.get("wetdry_priority_nodes", "")
+        or os.environ.get("WETDRY_PRIORITY_NODES", ""),
+        "WETDRY_QGLB_DIR": fesom.get("wetdry_qglb_dir", "")
+        or os.environ.get("WETDRY_QGLB_DIR", ""),
+        "RSCRIPT": fesom.get("wetdry_rscript", "") or os.environ.get("RSCRIPT", ""),
+        "R_LIBS_USER": fesom.get("wetdry_r_library", "")
+        or os.environ.get("R_LIBS_USER", "")
+        or runtime_r_library,
+        "WETDRY_PYTHON": fesom.get("wetdry_python", "")
+        or os.environ.get("WETDRY_PYTHON", "")
+        or os.environ.get("PYTHON", ""),
+        "PYFESOM_PATH": fesom.get("pyfesom_path", "")
+        or os.environ.get("PYFESOM_PATH", ""),
+        "CMOCEAN_PATH": fesom.get("cmocean_path", "")
+        or os.environ.get("CMOCEAN_PATH", ""),
         "EXP_ID": general["command_line_config"]["expid"],
         "iter_coup_regrid_method_ice2oce": "INTERPOLATE",
         "MACHINE": config["computer"]["name"],
-        "ICEBERG_DIR": config["fesom"].get("iceberg_dir", ""),
-        "RESTART_DIR_fesom": config["fesom"].get("experiment_restart_in_dir", ""),
+        "ICEBERG_DIR": fesom.get("iceberg_dir", ""),
+        "RESTART_DIR_fesom": fesom.get("experiment_restart_in_dir", ""),
         "WETDRY_CHUNK_TAG": chunk_tag,
         "WETDRY_MAXMESH_DIR": f"{couple_dir}/fesom_wetdry_maxmesh_{chunk_tag}",
         "WETDRY_SUBMESH_DIR": f"{couple_dir}/fesom_wetdry_submesh_{chunk_tag}",
