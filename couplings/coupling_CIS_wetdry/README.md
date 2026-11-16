@@ -250,6 +250,8 @@ ice2fesom
 |   |-- generate node and element mappings
 |   |-- derive node and cavity depths
 |   |-- enforce minimum cavity layers
+|   |-- repair neighboring-column vertical overlap
+|   |-- validate all mesh edges
 |   `-- initialize and partition the mesh
 |-- remap the previous FESOM restart to the new mesh
 |-- publish the new active mesh
@@ -304,6 +306,28 @@ mesh, incorporates PISM geometry and runs mesh cutting and reordering.
 Required commands are `relax150614.x` and `rg.x`. Their directory may be
 provided through `WETDRY_MESHTOOLS_BIN`.
 
+During cutting, `wetdry_maxmesh_nodhn.py` transfers PISM shelf geometry to the
+QGLB nodes. Continuous fields use mask-aware bilinear interpolation; the
+PISM latitude coordinate is sorted numerically, so descending latitude (the
+orientation commonly seen as `InvP` in ncview) is handled correctly. The
+grounded and floating masks remain categorical. For genuinely curvilinear
+2-D PISM lon/lat coordinates, the same continuous transfer uses a local
+Cartesian-on-the-sphere stencil. A limited floating-shelf-only graph smoother
+is applied by default to reduce one-cell shelf-base steps.
+
+Controls are:
+
+```text
+WETDRY_GEOMETRY_INTERPOLATION   bilinear (default) or nearest
+WETDRY_GEOMETRY_SMOOTH_PASSES   default 1; set 0 to disable
+WETDRY_GEOMETRY_SMOOTH_BLEND    default 0.5
+WETDRY_FLOATING_MASK_VAR        default floating_ice_mask
+```
+
+The intermediate fields are written under the maximum-mesh directory as
+`wetdry_shelf_on_maxmesh_raw.out`, `wetdry_shelf_on_maxmesh_smoothed.out`,
+and `wetdry_geometry_interp_diagnostics.txt`.
+
 #### 2. Submesh mapping
 
 `iterative_coupling_ice_fesom_wetdry_submesh_mapping` runs
@@ -336,6 +360,22 @@ WETDRY_CAVITY_DEPTH_ADJUST_EPS
 WETDRY_CAVITY_MIN_LAYERS_THIN_ONLY
 WETDRY_CAVITY_DEPTH_POSITIVE_DOWN
 WETDRY_CAVITY_ZMID_CONVENTION
+```
+
+After the per-node minimum-layer adjustment, the workflow applies the
+FESOM--ISSM-style edge repair in
+`utils/wetdry/wetdry_repair_edge_vertical_overlap.py`. For every edge with no
+shared active vertical layer, it deepens the shallower ocean-bed column to the
+next layer boundary reached by its deeper neighbor. The shelf-base field is
+not changed. The repair is bounded by `WETDRY_EDGE_REPAIR_MAX_DEEPENING`
+(default 500 m), followed by a complete edge check. Diagnostics are written
+to `edge_overlap_repair_diagnostics.txt`; the pre-repair depth is retained as
+`depth@node.out.before_edge_repair`.
+
+```text
+WETDRY_EDGE_REPAIR_MAX_DEEPENING   default 500 m
+WETDRY_EDGE_REPAIR_MAX_PASSES      default 10
+WETDRY_SKIP_EDGE_VERTICAL_OVERLAP_REPAIR=1   disable (not recommended)
 ```
 
 #### 5. Initialization and partitioning

@@ -111,6 +111,11 @@ function pism2ocean {
 
     iterative_coupling_pism_ocean_prepare_wetdry_geometry
 
+    # Keep the static QGLB bathymetry as the reference and transfer only the
+    # PISM bedrock-deformation anomaly to FESOM.  The existing wet/dry
+    # interpolation routine maps it together with the shelf fields.
+    iterative_coupling_pism_ocean_prepare_bedrock_anomaly
+
     iterative_coupling_pism_ocean_prepare_combine_forcings
 
     for file in ${cleanup_list} ; do test -f $file && rm $file ; done
@@ -120,6 +125,67 @@ function pism2ocean {
     unset PISM_FORCING_EXTRA_FILE PISM_RESTART_OUTPUT_FILE cdo_table_file
 
     echo "     ...done."
+}
+
+## @fn iterative_coupling_pism_ocean_prepare_bedrock_anomaly
+## @brief Create a PISM-grid topg anomaly with CDO/NCO.
+##
+## Mapping to FESOM nodes is intentionally performed by the existing wet/dry
+## interpolation routine together with shelf_base_ut and grounded_ice_mask.
+function iterative_coupling_pism_ocean_prepare_bedrock_anomaly {
+    typeset qglb="${WETDRY_QGLB_DIR:-}"
+    typeset baseline="${COUPLE_DIR}/pism_topg_initial.nc"
+    typeset current="${COUPLE_DIR}/pism_topg_current.nc"
+    typeset anomaly="${COUPLE_DIR}/pism_topg_anomaly.nc"
+    typeset summary="${COUPLE_DIR}/pism_topg_anomaly_summary.txt"
+    typeset bedrock_out="${COUPLE_DIR}/bedrock_topography_current.out"
+
+    # Never let a previous chunk's anomaly be reused after a failed/disabled
+    # extraction.
+    rm -f "$current" "$anomaly" "$summary" "$bedrock_out"
+
+    if [[ -z "$qglb" ]] || [[ ! -f "$qglb/global/nod2d.out" ]] || [[ ! -f "$qglb/global/bedrock_topography.out" ]]; then
+        echo "WARNING: PISM bedrock anomaly skipped: QGLB global bedrock files are unavailable."
+        return 0
+    fi
+    if ! command -v ncks >/dev/null 2>&1 || ! command -v cdo >/dev/null 2>&1 || ! command -v ncrename >/dev/null 2>&1; then
+        echo "WARNING: PISM bedrock anomaly skipped: ncks, ncrename and cdo are required."
+        return 0
+    fi
+    if [[ ! -f "${PISM_FORCING_EXTRA_FILE}" ]]; then
+        echo "WARNING: PISM bedrock anomaly skipped: ${PISM_FORCING_EXTRA_FILE} is missing."
+        return 0
+    fi
+
+    echo " *   Computing PISM bed-deformation anomaly from ${PISM_FORCING_EXTRA_FILE}"
+    ncks -O -d time,-1 -v topg,lon,lat "${PISM_FORCING_EXTRA_FILE}" "$current" || return 1
+    if [[ ! -f "$baseline" ]]; then
+        # The extra file contains a time series (monthly in the current
+        # runs).  The baseline must be the first record, not the final record
+        # copied into ${current}; otherwise the first chunk always has zero
+        # bedrock anomaly.
+        ncks -O -d time,0 -v topg,lon,lat "${PISM_FORCING_EXTRA_FILE}" "$baseline" || return 1
+        echo " *   Stored initial-record PISM topg baseline: ${baseline}"
+    else
+        echo " *   Keeping existing immutable PISM topg baseline: ${baseline}"
+    fi
+    typeset anomaly_topg="${COUPLE_DIR}/pism_topg_anomaly_topg.nc"
+    cdo -O sub -selname,topg "$current" -selname,topg "$baseline" "$anomaly_topg" \
+        2>> "${COUPLE_DIR}/cdo_stderr_pism_bedrock" || return 1
+    cp -f "$anomaly_topg" "$anomaly" || return 1
+    ncrename -O -v topg,topg_anomaly "$anomaly" || return 1
+    ncks -A -v lon,lat "$current" "$anomaly" || return 1
+    rm -f "$anomaly_topg"
+    cat > "$summary" <<EOF
+PISM current topg: ${current}
+PISM initial topg: ${baseline}
+PISM-grid anomaly: ${anomaly}
+anomaly minimum: $(cdo -s output -fldmin "$anomaly" 2>/dev/null)
+anomaly maximum: $(cdo -s output -fldmax "$anomaly" 2>/dev/null)
+anomaly mean: $(cdo -s output -fldmean "$anomaly" 2>/dev/null)
+EOF
+    echo " *   PISM-grid bedrock anomaly: ${anomaly}"
+    echo " *   Bedrock anomaly summary: ${summary}"
 }
 
 
@@ -505,23 +571,27 @@ function iterative_coupling_pism_ocean_prepare_wetdry_geometry {
     # FESOM wetdry mesh cutting: full-field usurf-thk + grounded (mask==2) mask for couple_in nodhn
     _cut_out=${COUPLE_DIR}/ice_wetdry_cut_fields.nc
     _cut_g=${COUPLE_DIR}/pism_wetdry_grounded_mask_expr.nc
+    _cut_f=${COUPLE_DIR}/pism_wetdry_floating_mask_expr.nc
     _cut_sb=${COUPLE_DIR}/pism_wetdry_shelf_base_ut_rename.nc
     $cdo -O expr,'grounded_ice_mask=(mask==2)*1.0+(mask!=2)*0.0' ${_wd_src} ${_cut_g}
+    $cdo -O expr,'floating_ice_mask=(mask==3)*1.0+(mask!=3)*0.0' ${_wd_src} ${_cut_f}
     $cdo -O -chname,usurf,shelf_base_ut ${_wd_sub} ${_cut_sb}
-    $cdo -O merge ${_cut_sb} ${_cut_g} ${_cut_out}
+    $cdo -O merge ${_cut_sb} ${_cut_g} ${_cut_f} ${_cut_out}
     ncatted -O -a long_name,shelf_base_ut,o,c,"PISM usurf-thk on full grid (m); use with grounded_ice_mask for nodhn" \
         -a units,shelf_base_ut,o,c,"m" \
         -a long_name,grounded_ice_mask,o,c,"1 where PISM mask==2 grounded ice, else 0" \
-        -a units,grounded_ice_mask,o,c,"1" ${_cut_out}
-    rm -f ${_cut_sb} ${_cut_g}
+        -a units,grounded_ice_mask,o,c,"1" \
+        -a long_name,floating_ice_mask,o,c,"1 where PISM mask==3 floating ice shelf, else 0" \
+        -a units,floating_ice_mask,o,c,"1" ${_cut_out}
+    rm -f ${_cut_sb} ${_cut_g} ${_cut_f}
 
     for _tfile in ${_wd_src} ${_wd_m3} ${_wd_m4} ${_wd_max} ${_wd_sub} ${_wd_ift}; do
         rm -f ${_tfile}
     done
 
-    unset _wd_src _wd_m3 _wd_m4 _wd_max _wd_sub _wd_ift _wet_out _base_out _level_out _tfile _sbl_sent _cut_out _cut_g _cut_sb
+    unset _wd_src _wd_m3 _wd_m4 _wd_max _wd_sub _wd_ift _wet_out _base_out _level_out _tfile _sbl_sent _cut_out _cut_g _cut_f _cut_sb
     echo "     ...wetdry geometry written to ${COUPLE_DIR}/ice_ocean_wet_mask.nc ice_shelf_base_geometry.nc ice_shelf_base_level.nc"
-    echo "     ...wetdry cut fields: ${COUPLE_DIR}/ice_wetdry_cut_fields.nc (shelf_base_ut, grounded_ice_mask)"
+    echo "     ...wetdry cut fields: ${COUPLE_DIR}/ice_wetdry_cut_fields.nc (shelf_base_ut, grounded_ice_mask, floating_ice_mask)"
 }
 
 

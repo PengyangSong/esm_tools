@@ -675,6 +675,15 @@ def fesom2_wetdry_restart():
     
     # --- Settings ---
     dyn_zero = False
+    # A mesh change can make Adams--Bashforth history inconsistent with the
+    # remapped current state.  Keep the normal behavior unchanged, but allow
+    # an opt-in diagnostic reset of only the dynamic history fields.
+    reset_rhs = os.getenv("WETDRY_RESET_RHS", "1").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    rhs_history_variables = {"urhs_AB", "vrhs_AB", "ssh_rhs_old"}
+    if reset_rhs:
+        print("WETDRY_RESET_RHS enabled: resetting urhs_AB, vrhs_AB and ssh_rhs_old")
     ale_type = "zstar"
     
     # --- Get list of NetCDF files ---
@@ -734,6 +743,12 @@ def fesom2_wetdry_restart():
     
             # Remapping
             var_out = fesom2_map_field(mesh1, mesh2, var_in, strategy)
+
+            # Diagnostic-only reset: preserve current u/v/ssh and reset only
+            # the old tendency/history fields used by the next time step.
+            if reset_rhs and varname in rhs_history_variables:
+                var_out = np.zeros_like(var_out)
+                print(f" Reset dynamic history field: {varname}")
     
             # Apply dynamic zeroing if needed
             if dyn_zero:

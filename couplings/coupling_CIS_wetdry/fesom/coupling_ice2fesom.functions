@@ -61,9 +61,15 @@ function ice2fesom {
     typeset _wd_next_mesh="${WETDRY_SUBMESH_DIR:-${COUPLE_DIR}/fesom_wetdry_submesh${_wdsuf}}"
 
     # (1) submesh_cutting → submesh_mapping → submesh_partition (wet-dry mesh under COUPLE_DIR)
-    iterative_coupling_ice_fesom_generate_submesh
+    iterative_coupling_ice_fesom_generate_submesh || {
+        echo "ERROR: wetdry submesh generation/partition failed; active mesh was not updated."
+        return 1
+    }
     # (2) Remap FESOM restart onto wet-dry submesh (last_mesh → submesh_dir)
-    iterative_coupling_ice_fesom_modify_fesom_restart
+    iterative_coupling_ice_fesom_modify_fesom_restart || {
+        echo "ERROR: wetdry restart remapping failed; active mesh was not updated."
+        return 1
+    }
     # (3) Publish active wetdry mesh only after restart remap has used last_mesh.
     if [[ -n "${WETDRY_SUBMESH_ACTIVE_DIR:-}" ]] && [[ -d "${_wd_next_mesh}" ]] && [[ -f "${_wd_next_mesh}/nod2d.out" ]]; then
         rm -rf "${WETDRY_SUBMESH_ACTIVE_DIR}" || return 1
@@ -173,8 +179,13 @@ function ice2fesom {
 ##   WETDRY_USE_PISM_SHELF_NODHN   default 1; set 0 to keep legacy interpolate_topography + modify_nodhn + aux3d in cutting
 ##   WETDRY_PISM_CUT_NC           optional override for cut-fields source (default ${COUPLE_DIR}/ice_file_at_ocean.combined.nc)
 ##   WETDRY_PISM_MAX_SEARCH_KM     passed to wetdry_maxmesh_nodhn.py
+##   WETDRY_GEOMETRY_INTERPOLATION bilinear (default) or nearest for continuous PISM fields
+##   WETDRY_GEOMETRY_SMOOTH_PASSES floating-shelf graph smoothing passes (default 1; 0 disables)
+##   WETDRY_GEOMETRY_SMOOTH_BLEND  blend toward floating-shelf neighbor mean (default 0.5)
+##   WETDRY_FLOATING_MASK_VAR      cut-field variable (default floating_ice_mask)
 ##   WETDRY_GROUNDED_NODHN_VALUE  nodhn over grounded ice (default -9999); passed to wetdry_maxmesh_nodhn.py
 ##   WETDRY_BEDROCK_FILE           basename under QGLB global (default bedrock_topography.out)
+##                                  auto-generated PISM-adjusted node file is used when present
 ##   WETDRY_NOD2D_FOR_SHELF        nod2d basename for shelf/nodhn on parent mesh (default nod2d.out; must match maxmesh)
 ##   WETDRY_SKIP_DEPTH_FROM_MAP    set 1 to skip wetdry_submesh_depth_outputs.py after mapping
 ##   WETDRY_MIN_DEPTH              optional --min_depth for wetdry_submesh_depth_outputs.py (default -20)
@@ -185,6 +196,9 @@ function ice2fesom {
 ##   WETDRY_CAVITY_MIN_LAYERS_THIN_ONLY  set 1 for --thin_cavity_only (nbase < zmid[0] only)
 ##   WETDRY_CAVITY_DEPTH_POSITIVE_DOWN  set 1 if depth@node is positive-down (legacy); default matches modify_nodhn (negative ocean)
 ##   WETDRY_CAVITY_ZMID_CONVENTION  optional: negative_z | positive_down (default auto from depth_zlev zmid)
+##   WETDRY_EDGE_REPAIR_MAX_DEEPENING maximum bed deepening per node in m (default 500)
+##   WETDRY_EDGE_REPAIR_MAX_PASSES maximum repair passes (default 10)
+##   WETDRY_SKIP_EDGE_VERTICAL_OVERLAP_REPAIR set 1 to disable edge repair (not recommended)
 ##   WETDRY_DEPTH_ZLEV            optional explicit path to depth_zlev.out (else global/ then submesh root)
 ##   WETDRY_PRIORITY_NODES         optional: path to priority_nodes file copied to submesh/priority_nodes.txt before relax
 ##                                   (relax150614.x requires this file; default copy from submesh_cutting_settings if present)
@@ -240,7 +254,20 @@ function iterative_coupling_ice_fesom_wetdry_submesh_cutting {
     cp -r "$qglb/global" "$subd/" || return 1
 
     typeset _use_pism_nodhn=0
-    typeset _cut_nc="${WETDRY_PISM_CUT_NC:-${COUPLE_DIR}/ice_file_at_ocean.combined.nc}"
+    typeset _cut_nc="${WETDRY_PISM_CUT_NC:-}"
+    if [[ -z "${_cut_nc}" ]]; then
+        # Prefer the dedicated full PISM-grid cut fields, which include the
+        # categorical floating_ice_mask.  Fall back to the legacy combined
+        # forcing file for older experiments.
+        if [[ -f "${COUPLE_DIR}/ice_wetdry_cut_fields.nc" ]]; then
+            _cut_nc="${COUPLE_DIR}/ice_wetdry_cut_fields.nc"
+        else
+            _cut_nc="${COUPLE_DIR}/ice_file_at_ocean.combined.nc"
+        fi
+    fi
+    typeset _topg_anomaly="${COUPLE_DIR}/pism_topg_anomaly.nc"
+    typeset _bedrock_out="${COUPLE_DIR}/bedrock_topography_current.out"
+    [[ -f "$_topg_anomaly" ]] || _topg_anomaly=""
     if [[ "${WETDRY_USE_PISM_SHELF_NODHN:-1}" != "0" ]]; then
         if [[ -f "$_cut_nc" ]]; then
             _use_pism_nodhn=1
@@ -264,11 +291,21 @@ function iterative_coupling_ice_fesom_wetdry_submesh_cutting {
             --pism_cut_nc "$_cut_nc" \
             --out_nodhn "$subd/nodhn.out" \
             --out_shelf_max "$maxd/wetdry_shelf_on_maxmesh.out" \
+            --floating_mask_var "${WETDRY_FLOATING_MASK_VAR:-floating_ice_mask}" \
+            --interpolation "${WETDRY_GEOMETRY_INTERPOLATION:-bilinear}" \
+            --smooth_passes "${WETDRY_GEOMETRY_SMOOTH_PASSES:-1}" \
+            --smooth_blend "${WETDRY_GEOMETRY_SMOOTH_BLEND:-0.5}" \
+            --out_bedrock "$_bedrock_out" \
+            ${_topg_anomaly:+--topg_anomaly_nc} ${_topg_anomaly:+$_topg_anomaly} \
             ${WETDRY_BEDROCK_FILE:+--bedrock_file} ${WETDRY_BEDROCK_FILE:+$WETDRY_BEDROCK_FILE} \
             ${WETDRY_NOD2D_FOR_SHELF:+--nod2d} ${WETDRY_NOD2D_FOR_SHELF:+$WETDRY_NOD2D_FOR_SHELF} \
             ${WETDRY_PISM_MAX_SEARCH_KM:+--max_search_km} ${WETDRY_PISM_MAX_SEARCH_KM:+$WETDRY_PISM_MAX_SEARCH_KM} \
             ${WETDRY_GROUNDED_NODHN_VALUE:+--grounded_nodhn_value} ${WETDRY_GROUNDED_NODHN_VALUE:+$WETDRY_GROUNDED_NODHN_VALUE} \
             || return 1
+        if [[ -f "$_bedrock_out" ]]; then
+            export WETDRY_BEDROCK_FILE="$_bedrock_out"
+            echo " *   Using interpolated PISM bedrock/QGLB file: ${WETDRY_BEDROCK_FILE}"
+        fi
     fi
 
     ( cd "$subd" || exit 1
@@ -422,6 +459,63 @@ function iterative_coupling_ice_fesom_wetdry_submesh_cavity_min_layers {
     return 0
 }
 
+## Validate that every neighboring pair of nodes shares an active vertical layer.
+## This is intentionally separate from the per-node minimum-layer adjustment:
+## a mesh can satisfy the latter while still containing a transport bottleneck.
+function iterative_coupling_ice_fesom_wetdry_check_edge_vertical_overlap {
+    typeset wutils="${WETDRY_UTILS:-${FUNCTION_PATH}/../utils/wetdry}"
+    typeset _wdsuf="${WETDRY_CHUNK_TAG:+_${WETDRY_CHUNK_TAG}}"
+    typeset subd="${WETDRY_SUBMESH_DIR:-${COUPLE_DIR}/fesom_wetdry_submesh${_wdsuf}}"
+
+    if [[ "${WETDRY_SKIP_EDGE_VERTICAL_OVERLAP_CHECK:-0}" == "1" ]]; then
+        echo " --- wetdry edge vertical-overlap check: skipped (WETDRY_SKIP_EDGE_VERTICAL_OVERLAP_CHECK=1) ---"
+        return 0
+    fi
+    if [[ ! -f "${wutils}/wetdry_check_edge_vertical_overlap.py" ]]; then
+        echo "ERROR: edge vertical-overlap checker missing: ${wutils}/wetdry_check_edge_vertical_overlap.py"
+        return 1
+    fi
+    typeset _cav_pd=""
+    [[ "${WETDRY_CAVITY_DEPTH_POSITIVE_DOWN:-0}" == "1" ]] && _cav_pd="--depth_at_node_positive_down"
+    echo " --- wetdry edge vertical-overlap check: every mesh edge must share an active layer ---"
+    wetdry_python "${wutils}/wetdry_check_edge_vertical_overlap.py" \
+        --submesh_dir "$subd" \
+        ${WETDRY_DEPTH_ZLEV:+--depth_zlev} ${WETDRY_DEPTH_ZLEV:+$WETDRY_DEPTH_ZLEV} \
+        ${_cav_pd} \
+        ${WETDRY_CAVITY_ZMID_CONVENTION:+--zmid_convention} ${WETDRY_CAVITY_ZMID_CONVENTION:+$WETDRY_CAVITY_ZMID_CONVENTION} \
+        ${WETDRY_EDGE_OVERLAP_MAX_REPORT:+--max_report} ${WETDRY_EDGE_OVERLAP_MAX_REPORT:+$WETDRY_EDGE_OVERLAP_MAX_REPORT} \
+        || return 1
+    return 0
+}
+
+## Repair missing edge overlap by deepening the shallower bed column, then verify.
+function iterative_coupling_ice_fesom_wetdry_repair_edge_vertical_overlap {
+    typeset wutils="${WETDRY_WUTILS:-${WETDRY_UTILS:-${FUNCTION_PATH}/../utils/wetdry}}"
+    typeset _wdsuf="${WETDRY_CHUNK_TAG:+_${WETDRY_CHUNK_TAG}}"
+    typeset subd="${WETDRY_SUBMESH_DIR:-${COUPLE_DIR}/fesom_wetdry_submesh${_wdsuf}}"
+
+    if [[ "${WETDRY_SKIP_EDGE_VERTICAL_OVERLAP_REPAIR:-0}" == "1" ]]; then
+        echo " --- wetdry edge-overlap repair: skipped (WETDRY_SKIP_EDGE_VERTICAL_OVERLAP_REPAIR=1) ---"
+        return 0
+    fi
+    if [[ ! -f "${wutils}/wetdry_repair_edge_vertical_overlap.py" ]]; then
+        echo "ERROR: edge-overlap repair script missing: ${wutils}/wetdry_repair_edge_vertical_overlap.py"
+        return 1
+    fi
+    typeset _cav_pd=""
+    [[ "${WETDRY_CAVITY_DEPTH_POSITIVE_DOWN:-0}" == "1" ]] && _cav_pd="--depth_at_node_positive_down"
+    echo " --- wetdry edge-overlap repair: deepen shallow bed columns where needed ---"
+    wetdry_python "${wutils}/wetdry_repair_edge_vertical_overlap.py" \
+        --submesh_dir "$subd" \
+        ${WETDRY_DEPTH_ZLEV:+--depth_zlev} ${WETDRY_DEPTH_ZLEV:+$WETDRY_DEPTH_ZLEV} \
+        ${WETDRY_EDGE_REPAIR_MAX_DEEPENING:+--max_bed_deepening} ${WETDRY_EDGE_REPAIR_MAX_DEEPENING:+$WETDRY_EDGE_REPAIR_MAX_DEEPENING} \
+        ${WETDRY_EDGE_REPAIR_MAX_PASSES:+--max_passes} ${WETDRY_EDGE_REPAIR_MAX_PASSES:+$WETDRY_EDGE_REPAIR_MAX_PASSES} \
+        ${_cav_pd} \
+        ${WETDRY_CAVITY_ZMID_CONVENTION:+--zmid_convention} ${WETDRY_CAVITY_ZMID_CONVENTION:+$WETDRY_CAVITY_ZMID_CONVENTION} \
+        || return 1
+    return 0
+}
+
 ## submesh_partition: mesh ini and partitioning (fesom_ini.x, gen_mesh_cst.R, CDO OCE_flag/GLAC_flag on mesh_cst.nc).
 function iterative_coupling_ice_fesom_wetdry_submesh_partition {
     typeset wutils="${WETDRY_WUTILS:-${WETDRY_UTILS:-${FUNCTION_PATH}/../utils/wetdry}}"
@@ -535,6 +629,14 @@ function iterative_coupling_ice_fesom_generate_submesh {
         return 1
     }
     iterative_coupling_ice_fesom_wetdry_submesh_cavity_min_layers || {
+        unset WETDRY_WUTILS
+        return 1
+    }
+    iterative_coupling_ice_fesom_wetdry_repair_edge_vertical_overlap || {
+        unset WETDRY_WUTILS
+        return 1
+    }
+    iterative_coupling_ice_fesom_wetdry_check_edge_vertical_overlap || {
         unset WETDRY_WUTILS
         return 1
     }
